@@ -34,8 +34,9 @@ import { AreaBadge } from './ui/AreaBadge.tsx';
 import { SymbolsCatalogModal } from './ui/SymbolsCatalogModal.tsx';
 import { ScheduleBOQModal } from './ui/ScheduleBOQModal.tsx';
 import { RouteControlBar } from './ui/RouteControlBar.tsx';
-import { ExportModal } from './ui/ExportModal.tsx';
-import { DxfModal } from './ui/DxfModal.tsx';
+// تحميل كسول: نافذتا التصدير (jsPDF ≈630KB) وDXF تُحمَّلان عند أول فتح فقط
+const ExportModal = React.lazy(() => import('./ui/ExportModal.tsx').then((m) => ({ default: m.ExportModal })));
+const DxfModal = React.lazy(() => import('./ui/DxfModal.tsx').then((m) => ({ default: m.DxfModal })));
 import { CustomSymbolModal } from './ui/CustomSymbolModal.tsx';
 import { AiAssistantModal } from './ui/AiAssistantModal.tsx';
 import { AboutInfoModal } from './ui/AboutInfoModal.tsx';
@@ -400,7 +401,12 @@ export default function App() {
   const [isSymbolsCatalogOpen, setIsSymbolsCatalogOpen] = useState(false);
   const [isScheduleBOQOpen, setIsScheduleBOQOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const exportEverOpened = useRef(false);
+  if (isExportModalOpen) exportEverOpened.current = true;
   const [isDxfModalOpen, setIsDxfModalOpen] = useState(false);
+  // تبقى النافذة الكسولة مركّبة بعد أول فتح (للحفاظ على حالتها كما كانت)
+  const dxfEverOpened = useRef(false);
+  if (isDxfModalOpen) dxfEverOpened.current = true;
   const [isCustomSymbolModalOpen, setIsCustomSymbolModalOpen] = useState(false);
   const [isAiAssistantModalOpen, setIsAiAssistantModalOpen] = useState(false);
   const [isAboutModalOpen, setIsAboutModalOpen] = useState(false);
@@ -1492,6 +1498,8 @@ export default function App() {
         onClose={() => setIsLayersOpen(false)}
       />
 
+      {exportEverOpened.current && (
+      <React.Suspense fallback={null}>
       <ExportModal
         model={model}
         engine={engineRef.current}
@@ -1499,6 +1507,8 @@ export default function App() {
         onClose={() => setIsExportModalOpen(false)}
         onOpenScheduleBOQ={() => setIsScheduleBOQOpen(true)}
       />
+      </React.Suspense>
+      )}
 
       <SymbolsCatalogModal
         isOpen={isSymbolsCatalogOpen}
@@ -1512,6 +1522,8 @@ export default function App() {
       />
 
       {/* أدوات AutoCAD DXF، استوديو الرموز المخصصة، والمساعد الهندسي الذكي */}
+      {dxfEverOpened.current && (
+      <React.Suspense fallback={null}>
       <DxfModal
         model={model}
         isOpen={isDxfModalOpen}
@@ -1521,6 +1533,8 @@ export default function App() {
           engineRef.current?.render();
         }}
       />
+      </React.Suspense>
+      )}
 
       <CustomSymbolModal
         isOpen={isCustomSymbolModalOpen}

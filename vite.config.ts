@@ -18,7 +18,7 @@ export default defineConfig(() => {
         output: {
           manualChunks(id) {
             if (id.includes('node_modules')) {
-              if (id.includes('jspdf') || id.includes('html2canvas') || id.includes('purify')) return 'vendor-pdf';
+              // مكتبة PDF تُترك للتقسيم التلقائي: تُحمَّل كسولاً مع نافذة التصدير فقط
               if (id.includes('konva')) return 'vendor-canvas';
               if (id.includes('lucide-react')) return 'vendor-icons';
               if (id.includes('react') || id.includes('react-dom') || id.includes('motion')) return 'vendor-react';
