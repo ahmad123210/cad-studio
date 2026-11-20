@@ -35,3 +35,8 @@ desktop.ini
 # ── السجلات ──
 *.log
 npm-debug.log*
+
+# ── مخرجات الاختبارات ──
+test-results/
+playwright-report/
+blob-report/

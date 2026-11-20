@@ -49,6 +49,18 @@ npm run build       # بناء إلى dist/
 npm run preview     # معاينة البناء
 ```
 
+## الاختبارات
+
+```bash
+npm run typecheck     # فحص الأنواع
+npm test              # اختبارات الوحدات (Vitest): التحويلات، الترحيل، DXF، الالتقاط، النموذج، الأوامر، وصل الجدران
+npx playwright install chromium   # مرة واحدة
+npm run test:e2e      # اختبارات التفاعل في المتصفح (Playwright): الرسم، الدقة، التحرير، الحفظ الكبير، DXF
+```
+
+لاستخدام Chrome المثبت بدلاً من متصفح Playwright: `CHROME_PATH=/usr/bin/google-chrome npm run test:e2e`.
+تعمل كل الاختبارات تلقائياً على GitHub Actions مع كل طلب دمج (`.github/workflows/ci.yml`).
+
 ## تطبيق سطح المكتب (Windows)
 
 ```bash
