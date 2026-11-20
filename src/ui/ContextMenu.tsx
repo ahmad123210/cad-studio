@@ -20,7 +20,15 @@ import {
   ScanLine,
   Maximize2,
   FilePlus,
+  Move,
+  FlipHorizontal2,
+  Scaling,
+  Grid3x3,
+  Copy as CopyIcon,
+  RotateCcw,
+  SeparatorVertical,
 } from 'lucide-react';
+import type { EditCommandKind } from '../engine/renderer.ts';
 
 export interface ContextMenuProps {
   position: { x: number; y: number } | null;
@@ -40,6 +48,8 @@ export interface ContextMenuProps {
   onOpenProperties: () => void;
   onAddSheet: () => void;
   onClose: () => void;
+  /** بدء أمر تحرير بنقطة أساس على التحديد */
+  onEditCommand?: (kind: EditCommandKind) => void;
 }
 
 export const ContextMenu: React.FC<ContextMenuProps> = ({
@@ -60,6 +70,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
   onOpenProperties,
   onAddSheet,
   onClose,
+  onEditCommand,
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -90,12 +101,21 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
 
   // منع خروج القائمة خارج أبعاد الشاشة
   const menuWidth = 210;
-  const menuHeight = targetObject || selectedCount > 0 ? 320 : 220;
+  const menuHeight = targetObject || selectedCount > 0 ? (onEditCommand ? 560 : 320) : 220;
   const x = Math.min(position.x, window.innerWidth - menuWidth - 10);
   const y = Math.min(position.y, window.innerHeight - menuHeight - 10);
 
   const hasSelection = targetObject !== null || selectedCount > 0;
-  const canRotate = targetObject?.type === 'symbol' || targetObject?.type === 'text';
+  // التدوير السريع متاح الآن للجدران والمسارات والأبعاد أيضاً (حول مركز التحديد)
+  const canRotate =
+    selectedCount > 1 ||
+    targetObject?.type === 'symbol' ||
+    targetObject?.type === 'text' ||
+    targetObject?.type === 'wall' ||
+    targetObject?.type === 'route' ||
+    targetObject?.type === 'dimension';
+  const isSymbolLike = targetObject?.type === 'symbol' || targetObject?.type === 'text';
+  const hasWall = targetObject?.type === 'wall' || selectedCount > 1;
   const canToggleLength = targetObject?.type === 'wall' || targetObject?.type === 'route';
 
   return (
@@ -169,7 +189,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
               >
                 <div className="flex items-center gap-2">
                   <RotateCw size={14} className="text-amber-400" />
-                  <span>عكس اتجاه الرمز (180°)</span>
+                  <span>{isSymbolLike ? 'عكس اتجاه الرمز (180°)' : 'تدوير 180°'}</span>
                 </div>
                 <kbd className="text-[10px] text-neutral-500 font-mono-cad">F</kbd>
               </button>
@@ -186,6 +206,86 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
                 </div>
                 <kbd className="text-[10px] text-neutral-500 font-mono-cad">R</kbd>
               </button>
+            </>
+          )}
+
+          {onEditCommand && (
+            <>
+              <div className="px-2 pt-1.5 pb-0.5 text-[10px] font-bold text-neutral-500 border-t border-neutral-800 mt-0.5">
+                أوامر التحرير الدقيق
+              </div>
+              <button
+                onClick={() => {
+                  onEditCommand('move');
+                  onClose();
+                }}
+                className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-neutral-800 text-right cursor-pointer"
+              >
+                <Move size={14} className="text-sky-400" />
+                <span>نقل بنقطة أساس</span>
+              </button>
+              <button
+                onClick={() => {
+                  onEditCommand('copy');
+                  onClose();
+                }}
+                className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-neutral-800 text-right cursor-pointer"
+              >
+                <CopyIcon size={14} className="text-sky-400" />
+                <span>نسخ متعدد بنقطة أساس</span>
+              </button>
+              <button
+                onClick={() => {
+                  onEditCommand('rotate');
+                  onClose();
+                }}
+                className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-neutral-800 text-right cursor-pointer"
+              >
+                <RotateCcw size={14} className="text-amber-400" />
+                <span>تدوير بزاوية</span>
+              </button>
+              <button
+                onClick={() => {
+                  onEditCommand('scale');
+                  onClose();
+                }}
+                className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-neutral-800 text-right cursor-pointer"
+              >
+                <Scaling size={14} className="text-amber-400" />
+                <span>تحجيم</span>
+              </button>
+              <button
+                onClick={() => {
+                  onEditCommand('mirror');
+                  onClose();
+                }}
+                className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-neutral-800 text-right cursor-pointer"
+              >
+                <FlipHorizontal2 size={14} className="text-violet-400" />
+                <span>مرآة (انعكاس)</span>
+              </button>
+              <button
+                onClick={() => {
+                  onEditCommand('array');
+                  onClose();
+                }}
+                className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-neutral-800 text-right cursor-pointer"
+              >
+                <Grid3x3 size={14} className="text-emerald-400" />
+                <span>مصفوفة صفوف × أعمدة</span>
+              </button>
+              {hasWall && (
+                <button
+                  onClick={() => {
+                    onEditCommand('offset');
+                    onClose();
+                  }}
+                  className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-neutral-800 text-right cursor-pointer"
+                >
+                  <SeparatorVertical size={14} className="text-emerald-400" />
+                  <span>إزاحة متوازية للجدار</span>
+                </button>
+              )}
             </>
           )}
 

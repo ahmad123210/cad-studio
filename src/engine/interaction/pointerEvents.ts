@@ -47,7 +47,7 @@ import type { CadEngine, ToolMode, SketchUpCalibrationEvent, WallDrawingState, E
 import { BoxRect, isObjectInBox, pointInBox, segmentIntersectsBox } from '../geometry/selectionBox.ts';
 
 /** نفس قائمة CadEngine.TRACKING_TOOLS (لا نستورد قيمة من renderer لتجنب الاستيراد الدائري) */
-const CADENGINE_TRACKING_TOOLS: ToolMode[] = ['wall', 'dimension', 'measure', 'route', 'area', 'calibrate'];
+const CADENGINE_TRACKING_TOOLS: ToolMode[] = ['wall', 'dimension', 'measure', 'route', 'area', 'calibrate', 'edit'];
 
 export function bindEventsImpl(this: CadEngine): void {
     window.addEventListener('keydown', this.handleKeyDown);
@@ -131,6 +131,12 @@ export function bindEventsImpl(this: CadEngine): void {
           );
       if (!forced && snap.snapped) this.lastInputPoint = { ...snap.point };
       const activeWorldPoint = snap.point;
+
+      // 0. أوامر التحرير بنقطة أساس (نقل/نسخ/تدوير/تحجيم/مرآة/إزاحة)
+      if (this.toolMode === 'edit') {
+        this.handleEditClick(activeWorldPoint, snap.snapped && snap.type !== 'grid', Boolean(e.evt.shiftKey || this.isShiftKeyPressed));
+        return;
+      }
 
       // 1. رسم جدار
       if (this.toolMode === 'wall') {
@@ -750,7 +756,8 @@ export function processPointerMoveImpl(this: CadEngine, pointer: Point, shiftKey
       (this.isMarqueeSelecting && this.marqueeStartPoint) ||
       this.toolMode === 'door' ||
       this.toolMode === 'window' ||
-      this.toolMode === 'symbol';
+      this.toolMode === 'symbol' ||
+      this.toolMode === 'edit';
 
     if (hasActiveTransient) {
       this.renderInteractionLayer(shiftKey);

@@ -23,6 +23,7 @@ import {
   UpdateObjectCommand,
 } from './types.ts';
 import { CommandManager } from './history.ts';
+import { TransformSpec, transformUpdates } from './transforms.ts';
 
 function getObjectTypeName(type: string): string {
   switch (type) {
@@ -281,6 +282,9 @@ export class ProjectModel {
     if (index === -1) return undefined;
 
     const removed = this.objects[index];
+    // مواضع العناصر الأصلية لاستعادة ترتيب الرسم (z-order) عند التراجع
+    const originalOrder = this.objects.map((o) => o.id);
+    const originalIndexOf = (oid: string) => originalOrder.indexOf(oid);
 
     // إذا كان العنصر جداراً، نجد أي أبواب أو نوافذ مرتبطة به
     const attachedObjects = removed.type === 'wall'
@@ -308,11 +312,13 @@ export class ProjectModel {
             type: 'delete' as const,
             object: JSON.parse(JSON.stringify(removed)),
             timestamp: Date.now(),
+            index: originalIndexOf(removed.id),
           },
           ...attachedObjects.map((att) => ({
             type: 'delete' as const,
             object: JSON.parse(JSON.stringify(att)),
             timestamp: Date.now(),
+            index: originalIndexOf(att.id),
           })),
         ];
         this.history.push({
@@ -326,6 +332,7 @@ export class ProjectModel {
           type: 'delete',
           object: JSON.parse(JSON.stringify(removed)),
           timestamp: Date.now(),
+          index,
           description: `حذف ${getObjectTypeName(removed.type)}`,
         });
       }
@@ -342,10 +349,11 @@ export class ProjectModel {
     if (recordHistory && this.objects.length > 0) {
       this.history.push({
         type: 'batch',
-        commands: this.objects.map((obj) => ({
+        commands: this.objects.map((obj, i) => ({
           type: 'delete' as const,
           object: JSON.parse(JSON.stringify(obj)),
           timestamp: Date.now(),
+          index: i,
         })),
         timestamp: Date.now(),
         description: 'مسح جميع عناصر المخطط',
@@ -418,21 +426,58 @@ export class ProjectModel {
         if (host && host.type === 'wall') idSet.add(o.id);
       }
     }
-    const toDelete = this.objects.filter((o) => idSet.has(o.id));
+    const toDelete: { obj: ProjectObject; index: number }[] = [];
+    this.objects.forEach((o, i) => {
+      if (idSet.has(o.id)) toDelete.push({ obj: o, index: i });
+    });
     if (toDelete.length === 0) return;
 
     this.history.push({
       type: 'batch',
-      commands: toDelete.map((obj) => ({
+      commands: toDelete.map(({ obj, index }) => ({
         type: 'delete' as const,
         object: JSON.parse(JSON.stringify(obj)),
         timestamp: Date.now(),
+        index,
       })),
       timestamp: Date.now(),
       description: `حذف ${toDelete.length} عناصر محددة`,
     });
 
     this.objects = this.objects.filter((o) => !idSet.has(o.id));
+    this.notify();
+  }
+
+  /**
+   * تطبيق تحويل هندسي (تدوير/مرآة/تحجيم/نقل) على مجموعة عناصر كخطوة تراجع واحدة.
+   * الأبواب والنوافذ تتبع جدرانها تلقائياً (موضعها نسبي على الجدار).
+   */
+  public applyTransform(ids: string[], spec: TransformSpec, description: string): void {
+    const idSet = new Set(ids);
+    const wallIds = new Set(
+      this.objects.filter((o) => o.type === 'wall' && idSet.has(o.id)).map((o) => o.id)
+    );
+    const commands: UpdateObjectCommand[] = [];
+    for (const obj of this.objects) {
+      if (!idSet.has(obj.id)) continue;
+      const after = transformUpdates(obj, spec, wallIds);
+      if (!after || Object.keys(after).length === 0) continue;
+      const rec = obj as unknown as Record<string, unknown>;
+      const before: Record<string, unknown> = {};
+      for (const k of Object.keys(after)) {
+        before[k] = rec[k] === undefined ? undefined : JSON.parse(JSON.stringify(rec[k]));
+      }
+      Object.assign(obj, JSON.parse(JSON.stringify(after)));
+      commands.push({
+        type: 'update',
+        objectId: obj.id,
+        before: before as Partial<ProjectObject>,
+        after: JSON.parse(JSON.stringify(after)),
+        timestamp: Date.now(),
+      });
+    }
+    if (commands.length === 0) return;
+    this.history.push({ type: 'batch', commands, timestamp: Date.now(), description });
     this.notify();
   }
 
@@ -639,7 +684,13 @@ export class ProjectModel {
         break;
       }
       case 'delete': {
-        this.objects.push(JSON.parse(JSON.stringify(cmd.object)));
+        const restored = JSON.parse(JSON.stringify(cmd.object));
+        if (typeof cmd.index === 'number' && cmd.index >= 0) {
+          // إعادة العنصر لموضعه الأصلي في ترتيب الرسم بدلاً من آخر القائمة
+          this.objects.splice(Math.min(cmd.index, this.objects.length), 0, restored);
+        } else {
+          this.objects.push(restored);
+        }
         break;
       }
       case 'update': {
@@ -657,9 +708,20 @@ export class ProjectModel {
         break;
       }
       case 'batch': {
-        // تطبيق عكس الأوامر بالترتيب العكسي
-        for (let i = cmd.commands.length - 1; i >= 0; i--) {
-          this.applyCommandInverse(cmd.commands[i]);
+        const allIndexedDeletes =
+          cmd.commands.length > 0 &&
+          cmd.commands.every((c) => c.type === 'delete' && typeof c.index === 'number');
+        if (allIndexedDeletes) {
+          // حذف جماعي: الاستعادة بترتيب المواضع تصاعدياً تعيد القائمة الأصلية تماماً
+          const sorted = [...cmd.commands].sort(
+            (a, b) => ((a as { index?: number }).index ?? 0) - ((b as { index?: number }).index ?? 0)
+          );
+          for (const c of sorted) this.applyCommandInverse(c);
+        } else {
+          // تطبيق عكس الأوامر بالترتيب العكسي
+          for (let i = cmd.commands.length - 1; i >= 0; i--) {
+            this.applyCommandInverse(cmd.commands[i]);
+          }
         }
         break;
       }
@@ -725,6 +787,8 @@ export class ProjectModel {
     }
     const current = this.sheets.find((s) => s.id === this.activeSheetId);
     if (current) {
+      // كل لوحة تحفظ مقياسها (قد تختلف معايرة لوحة عن أخرى حسب صورة الخلفية)
+      current.scale = this.meta.scale;
       current.objects = JSON.parse(JSON.stringify(this.objects));
       current.backgroundImage = this.backgroundImage
         ? JSON.parse(JSON.stringify(this.backgroundImage))
@@ -751,6 +815,9 @@ export class ProjectModel {
     this.backgroundImage = target.backgroundImage
       ? JSON.parse(JSON.stringify(target.backgroundImage))
       : null;
+    if (typeof target.scale === 'number' && target.scale > 0) {
+      this.meta = { ...this.meta, scale: target.scale };
+    }
     this.history.clear();
     this.notify();
   }
@@ -764,6 +831,7 @@ export class ProjectModel {
       name: name?.trim() || `لوحة ${nextNum}`,
       objects: [],
       backgroundImage: null,
+      scale: this.meta.scale,
       createdAt: new Date().toISOString().split('T')[0],
     };
     this.sheets.push(newSheet);
@@ -818,6 +886,9 @@ export class ProjectModel {
       this.backgroundImage = nextSheet.backgroundImage
         ? JSON.parse(JSON.stringify(nextSheet.backgroundImage))
         : null;
+      if (typeof nextSheet.scale === 'number' && nextSheet.scale > 0) {
+        this.meta = { ...this.meta, scale: nextSheet.scale };
+      }
       this.history.clear();
     }
     this.notify();
