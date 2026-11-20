@@ -30,6 +30,8 @@ export interface LastUsedSettings {
   symbolScale: number; // مقياس حجم الرموز الموحد (افتراضياً 1.0)
   symbolColor: string; // اللون الافتراضي للرمز (افتراضياً '#f59e0b')
   symbolKindSettings: Record<string, { scale: number; color?: string; rotation?: number }>; // الاحتفاظ بآخر حجم وتنسيق لكل نوع رمز
+  /** اختصارات مخصصة: معرف الأمر ← KeyboardEvent.code (مثل KeyL). الغائب = الافتراضي */
+  customShortcuts?: Record<string, string>;
 }
 
 const STORAGE_KEY = 'cad_studio_last_used_settings';
