@@ -46,6 +46,9 @@ import {
 import type { CadEngine, ToolMode, SketchUpCalibrationEvent, WallDrawingState, EngineCallbacks } from '../renderer.ts';
 import { BoxRect, isObjectInBox, pointInBox, segmentIntersectsBox } from '../geometry/selectionBox.ts';
 
+/** نفس قائمة CadEngine.TRACKING_TOOLS (لا نستورد قيمة من renderer لتجنب الاستيراد الدائري) */
+const CADENGINE_TRACKING_TOOLS: ToolMode[] = ['wall', 'dimension', 'measure', 'route', 'area', 'calibrate'];
+
 export function bindEventsImpl(this: CadEngine): void {
     window.addEventListener('keydown', this.handleKeyDown);
     window.addEventListener('keyup', this.handleKeyUp);
@@ -111,17 +114,22 @@ export function bindEventsImpl(this: CadEngine): void {
 
       if (e.evt.button !== 0 && !e.evt.touches) return;
 
-      const pointer = this.stage.getPointerPosition();
+      // نقطة مُدخلة رقمياً من شريط الأوامر: تُعامل كنقرة دقيقة دون التقاط
+      const forced = this.forcedInputPoint;
+      const pointer = forced ? this.camera.worldToScreen(forced) : this.stage.getPointerPosition();
       if (!pointer) return;
       this.isPointerMovePending = false;
 
-      const worldRaw = this.camera.screenToWorld(pointer);
-      const snap = SnapEngine.findSnapPoint(
-        worldRaw,
-        this.model.getObjects(),
-        this.getEffectiveSnapOptions(),
-        this.toolMode === 'select' ? (this.selectedObjectId || undefined) : undefined
-      );
+      const worldRaw = forced ? { ...forced } : this.camera.screenToWorld(pointer);
+      const snap: SnapResult = forced
+        ? { point: { ...forced }, snapped: true, type: 'input', label: 'إدخال رقمي' }
+        : SnapEngine.findSnapPoint(
+            worldRaw,
+            this.model.getObjects(),
+            this.getEffectiveSnapOptions(),
+            this.toolMode === 'select' ? (this.selectedObjectId || undefined) : undefined
+          );
+      if (!forced && snap.snapped) this.lastInputPoint = { ...snap.point };
       const activeWorldPoint = snap.point;
 
       // 1. رسم جدار
@@ -685,6 +693,16 @@ export function processPointerMoveImpl(this: CadEngine, pointer: Point, shiftKey
       this.getEffectiveSnapOptions(),
       this.toolMode === 'select' ? (this.selectedObjectId || undefined) : undefined
     );
+
+    this.lastCursorWorld = worldRaw;
+    // اكتساب نقاط التتبع: كل نهاية/منتصف/تقاطع/رمز يمر عليه المؤشر أثناء أوامر الرسم
+    if (
+      CADENGINE_TRACKING_TOOLS.includes(this.toolMode) &&
+      this.currentSnapResult.snapped &&
+      ['endpoint', 'midpoint', 'intersection', 'symbol', 'route'].includes(this.currentSnapResult.type)
+    ) {
+      this.acquireTrackPoint(this.currentSnapResult.point);
+    }
 
     // فحص الالتقاط بالجدار عند تفعيل أداة الباب أو النافذة أو الرمز الهندسي
     const activeSettings = getLastUsedSettings();

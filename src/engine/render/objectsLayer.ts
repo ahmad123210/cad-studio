@@ -45,6 +45,7 @@ import {
 } from '../../model/lastUsedSettings.ts';
 import type { CadEngine, ToolMode, SketchUpCalibrationEvent, WallDrawingState, EngineCallbacks } from '../renderer.ts';
 import { BoxRect, isObjectInBox, pointInBox, segmentIntersectsBox } from '../geometry/selectionBox.ts';
+import { buildEndpointIndex, computeWallPolygon } from '../geometry/wallJoins.ts';
 
 export function renderObjectsLayerImpl(this: CadEngine): void {
     // أي إعادة بناء حقيقية تُنهي وضع اللقطة المؤقتة وتعيد الطبقة لتحويل الهوية
@@ -89,6 +90,16 @@ export function renderObjectsLayerImpl(this: CadEngine): void {
         Math.max(w.start.y, w.end.y) + pad
       );
     };
+
+    // فهرس نهايات الجدران المرئية لحساب وصلات الأركان (Miter Joins)
+    const visibleWalls: WallObject[] = [];
+    for (const o of objects) {
+      if (o.type !== 'wall') continue;
+      const lyr = layerById.get(o.layerId);
+      if (lyr && !lyr.visible) continue;
+      visibleWalls.push(o as WallObject);
+    }
+    const wallEndpointIndex = buildEndpointIndex(visibleWalls);
 
     // 1. رسم الجدران
     for (const obj of objects) {
@@ -138,15 +149,38 @@ export function renderObjectsLayerImpl(this: CadEngine): void {
         }
       }
 
-      const wallLine = new Konva.Line({
-        points: [sScreen.x, sScreen.y, eScreen.x, eScreen.y],
-        stroke: wallStroke,
-        strokeWidth: screenThickness,
-        hitStrokeWidth: Math.max(28, screenThickness + 18),
-        lineCap: 'square',
-        lineJoin: 'miter',
-      });
-      group.add(wallLine);
+      // وصل الأركان: إذا التقى الجدار بجدار آخر عند نهاية مشتركة نرسمه كمضلع بقطع مائل
+      const joinPoly = wall.thickness * zoom >= 2 ? computeWallPolygon(wall, wallEndpointIndex) : null;
+      if (joinPoly) {
+        const pts: number[] = [];
+        for (const p of joinPoly) {
+          const sp = this.camera.worldToScreen(p);
+          pts.push(sp.x, sp.y);
+        }
+        const wallPoly = new Konva.Line({
+          name: 'wall-poly',
+          points: pts,
+          closed: true,
+          fill: wallStroke,
+          stroke: wallStroke,
+          strokeWidth: 0.5,
+          hitStrokeWidth: Math.max(28, screenThickness + 18),
+          lineJoin: 'miter',
+        });
+        // عرض الخط الأصلي لاستخدامه أثناء معاينة سحب مقابض الجدار
+        wallPoly.setAttr('fullWidth', screenThickness);
+        group.add(wallPoly);
+      } else {
+        const wallLine = new Konva.Line({
+          points: [sScreen.x, sScreen.y, eScreen.x, eScreen.y],
+          stroke: wallStroke,
+          strokeWidth: screenThickness,
+          hitStrokeWidth: Math.max(28, screenThickness + 18),
+          lineCap: 'square',
+          lineJoin: 'miter',
+        });
+        group.add(wallLine);
+      }
 
       // (أُزيل خط الاستهداف الشفاف المكرر: hitStrokeWidth على wallLine أعلاه يؤدي الوظيفة نفسها بعقدة أقل)
 

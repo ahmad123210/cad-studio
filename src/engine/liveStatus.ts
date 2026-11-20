@@ -17,6 +17,7 @@ export interface LiveStatusState {
   snapResult: SnapResult;
   zoom: number;
   wallDrawing: WallDrawingState | null;
+  orthoMode: boolean;
 }
 
 let state: LiveStatusState = {
@@ -24,6 +25,7 @@ let state: LiveStatusState = {
   snapResult: { point: { x: 0, y: 0 }, snapped: false, type: 'none' },
   zoom: 1,
   wallDrawing: null,
+  orthoMode: false,
 };
 
 const listeners = new Set<() => void>();
@@ -54,6 +56,15 @@ export const liveStatus = {
   },
   setWallDrawing(wallDrawing: WallDrawingState | null): void {
     state = { ...state, wallDrawing };
+    scheduleNotify();
+  },
+  setOrthoMode(orthoMode: boolean): void {
+    state = { ...state, orthoMode };
+    scheduleNotify();
+  },
+  /** إعادة إشعار المشتركين (مثلاً بعد تغيّر حالة أداة الرسم) */
+  touch(): void {
+    state = { ...state };
     scheduleNotify();
   },
   subscribe(listener: () => void): () => void {

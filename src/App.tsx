@@ -49,14 +49,23 @@ import { WallLengthHud } from './ui/WallLengthHud.tsx';
 import { GridDensity, ThemeMode, getLastUsedSettings, updateLastUsedSettings } from './model/lastUsedSettings.ts';
 import { PanelRightOpen } from 'lucide-react';
 import { liveStatus, useLiveStatus } from './engine/liveStatus.ts';
+import { CommandBar } from './ui/CommandBar.tsx';
 
 /**
  * شريط الحالة المتصل مباشرة بالقيم عالية التردد (المؤشر/الالتقاط/الزوم)
  * حتى لا تُعاد تصيير واجهة التطبيق كاملة مع كل حركة فأرة.
  */
-function LiveStatusBar(props: Omit<React.ComponentProps<typeof StatusBar>, 'cursorWorld' | 'snapResult' | 'zoom'>) {
+function LiveStatusBar(props: Omit<React.ComponentProps<typeof StatusBar>, 'cursorWorld' | 'snapResult' | 'zoom' | 'orthoMode'>) {
   const live = useLiveStatus();
-  return <StatusBar {...props} cursorWorld={live.cursorWorld} snapResult={live.snapResult} zoom={live.zoom} />;
+  return (
+    <StatusBar
+      {...props}
+      cursorWorld={live.cursorWorld}
+      snapResult={live.snapResult}
+      zoom={live.zoom}
+      orthoMode={live.orthoMode}
+    />
+  );
 }
 
 /** شريط إدخال طول الجدار متصل مباشرة بالطول/الزاوية اللحظيين */
@@ -550,6 +559,9 @@ export default function App() {
       },
       onSelectionSubModeChange: (sub) => {
         setSelectionSubMode(sub);
+      },
+      onOrthoModeChange: (enabled) => {
+        liveStatus.setOrthoMode(enabled);
       },
     });
 
@@ -1386,11 +1398,14 @@ export default function App() {
               onCommitLength={(meters) => {
                 engineRef.current?.commitWallWithLength(meters);
               }}
+              onCommitPointText={(text) => engineRef.current?.applyPointInput(text) ?? null}
               onCancel={() => {
                 engineRef.current?.cancelDrawing();
               }}
             />
           )}
+          {/* شريط الأوامر وإدخال الإحداثيات الدقيقة (يُخفى أثناء رسم الجدار لأن WallLengthHud يتولى ذلك) */}
+          <CommandBar engine={engineRef.current} currentTool={currentTool} hidden={isDrawingWallUi} />
         </main>
 
         {/* لوحة الخصائص اليمنى */}
@@ -1432,6 +1447,7 @@ export default function App() {
 
       {/* شريط الحالة السفلي (StatusBar) */}
       <LiveStatusBar
+        onToggleOrtho={() => engineRef.current?.toggleOrthoMode()}
         activeLayerName={activeLayer?.name || 'المعماري'}
         pixelsPerMeter={meta.scale || 50}
         unit={meta.unit}

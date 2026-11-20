@@ -809,16 +809,58 @@ export function renderSnapIndicatorShapesImpl(this: CadEngine): void {
     if (snapType === 'endpoint') color = '#22c55e';
     if (snapType === 'midpoint') color = '#06b6d4';
     if (snapType === 'grid') color = '#eab308';
+    if (snapType === 'intersection') color = '#f472b6';
+    if (snapType === 'perpendicular') color = '#a78bfa';
+    if (snapType === 'tracking') color = '#4ade80';
+    if (snapType === 'input') color = '#f59e0b';
 
-    const marker = new Konva.Circle({
-      x: screenPos.x,
-      y: screenPos.y,
-      radius: 6,
-      stroke: color,
-      strokeWidth: 2,
-      fill: 'rgba(255, 255, 255, 0.2)',
-      name: 'snap-node',
-      listening: false,
-    });
+    // خطوط تتبع المحاذاة المنقطة (من النقطة المكتسبة إلى موضع المؤشر)
+    if (snapType === 'tracking' && this.currentSnapResult.guides) {
+      for (const g of this.currentSnapResult.guides) {
+        const a = this.camera.worldToScreen(g.from);
+        const b = this.camera.worldToScreen(g.to);
+        // نمد الخط قليلاً خلف المؤشر ليبدو كمحور إرشادي
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const len = Math.hypot(dx, dy) || 1;
+        const ext = 40;
+        this.interactionLayer.add(
+          new Konva.Line({
+            points: [a.x, a.y, b.x + (dx / len) * ext, b.y + (dy / len) * ext],
+            stroke: color,
+            strokeWidth: 1,
+            dash: [3, 4],
+            opacity: 0.9,
+            name: 'snap-node',
+            listening: false,
+          })
+        );
+        this.interactionLayer.add(
+          new Konva.Line({
+            points: [a.x - 4, a.y, a.x + 4, a.y, a.x, a.y, a.x, a.y - 4, a.x, a.y + 4],
+            stroke: color,
+            strokeWidth: 1.5,
+            name: 'snap-node',
+            listening: false,
+          })
+        );
+      }
+    }
+
+    // أشكال مميزة لكل نوع التقاط (كما في برامج CAD): مربع للنهاية، مثلث للمنتصف، X للتقاطع، ⊥ للعمودي
+    const size = 6;
+    const common = { stroke: color, strokeWidth: 2, name: 'snap-node', listening: false } as const;
+    let marker: Konva.Shape;
+    if (snapType === 'endpoint') {
+      marker = new Konva.Rect({ x: screenPos.x - size, y: screenPos.y - size, width: size * 2, height: size * 2, fill: 'rgba(255,255,255,0.15)', ...common });
+    } else if (snapType === 'midpoint') {
+      marker = new Konva.RegularPolygon({ x: screenPos.x, y: screenPos.y, sides: 3, radius: size + 1, fill: 'rgba(255,255,255,0.15)', ...common });
+    } else if (snapType === 'intersection') {
+      marker = new Konva.Line({ points: [screenPos.x - size, screenPos.y - size, screenPos.x + size, screenPos.y + size, screenPos.x, screenPos.y, screenPos.x + size, screenPos.y - size, screenPos.x - size, screenPos.y + size], ...common });
+    } else if (snapType === 'perpendicular') {
+      marker = new Konva.Line({ points: [screenPos.x - size, screenPos.y - size, screenPos.x - size, screenPos.y + size, screenPos.x + size, screenPos.y + size, screenPos.x - size, screenPos.y + size, screenPos.x - size, screenPos.y, screenPos.x, screenPos.y, screenPos.x, screenPos.y + size], ...common });
+    } else {
+      marker = new Konva.Circle({ x: screenPos.x, y: screenPos.y, radius: 6, fill: 'rgba(255, 255, 255, 0.2)', ...common });
+    }
     this.interactionLayer.add(marker);
   }
