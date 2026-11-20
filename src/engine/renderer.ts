@@ -606,9 +606,12 @@ export class CadEngine {
     return applyEditValueImpl.call(this, text);
   }
 
-  handleEditClick(point: Point, objectSnapped: boolean, shift: boolean): void {
-    return handleEditClickImpl.call(this, point, objectSnapped, shift);
+  handleEditClick(point: Point, objectSnapped: boolean, shift: boolean, rawPoint?: Point): void {
+    return handleEditClickImpl.call(this, point, objectSnapped, shift, rawPoint);
   }
+
+  /** رسالة حالة أمر التحرير (مثل: لا توجد حدود للقص) تظهر في شريط الأوامر */
+  editMessage: string | null = null;
 
   renderEditPreview(shift: boolean): void {
     return renderEditPreviewImpl.call(this, shift);
@@ -993,6 +996,7 @@ export class CadEngine {
 
   public cancelDrawing(): void {
     this.trackPoints = [];
+    this.editMessage = null;
     if (this.editCmd) {
       this.editCmd = null;
       if (this.toolMode === 'edit') {

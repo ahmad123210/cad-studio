@@ -18,6 +18,7 @@ import {
   RouteObject,
   TextObject,
   LineObject,
+  BatchCommand,
   BackgroundImageData,
   Command,
   Point,
@@ -25,6 +26,7 @@ import {
 } from './types.ts';
 import { CommandManager } from './history.ts';
 import { TransformSpec, transformUpdates } from './transforms.ts';
+import type { EditPlan } from './trimExtend.ts';
 import { CURRENT_SCHEMA_VERSION, migrateProjectData } from './schema.ts';
 import { idbSaveProject, idbLoadProject, idbAddBackup, idbListBackups, idbGetBackup, BackupEntry } from './storage.ts';
 
@@ -480,6 +482,38 @@ export class ProjectModel {
         after: JSON.parse(JSON.stringify(after)),
         timestamp: Date.now(),
       });
+    }
+    if (commands.length === 0) return;
+    this.history.push({ type: 'batch', commands, timestamp: Date.now(), description });
+    this.notify();
+  }
+
+  /**
+   * تطبيق خطة تعديل مركبة (تحديثات + إضافات + حذف) كخطوة تراجع واحدة — للقص والتمديد.
+   */
+  public applyEdits(plan: EditPlan, description: string): void {
+    const commands: BatchCommand['commands'] = [];
+    for (const u of plan.updates) {
+      const obj = this.objects.find((o) => o.id === u.id);
+      if (!obj) continue;
+      const rec = obj as unknown as Record<string, unknown>;
+      const before: Record<string, unknown> = {};
+      for (const k of Object.keys(u.after)) before[k] = rec[k] === undefined ? undefined : JSON.parse(JSON.stringify(rec[k]));
+      for (const [k, v] of Object.entries(u.after)) {
+        if (v === undefined) delete rec[k];
+        else rec[k] = JSON.parse(JSON.stringify(v));
+      }
+      commands.push({ type: 'update', objectId: u.id, before: before as Partial<ProjectObject>, after: JSON.parse(JSON.stringify(u.after)), timestamp: Date.now() });
+    }
+    for (const id of plan.deletes) {
+      const index = this.objects.findIndex((o) => o.id === id);
+      if (index === -1) continue;
+      const [removed] = this.objects.splice(index, 1);
+      commands.push({ type: 'delete', object: JSON.parse(JSON.stringify(removed)), timestamp: Date.now(), index });
+    }
+    for (const add of plan.adds) {
+      this.objects.push(add);
+      commands.push({ type: 'add', object: JSON.parse(JSON.stringify(add)), timestamp: Date.now() });
     }
     if (commands.length === 0) return;
     this.history.push({ type: 'batch', commands, timestamp: Date.now(), description });

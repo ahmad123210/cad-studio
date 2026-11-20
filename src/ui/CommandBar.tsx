@@ -214,6 +214,9 @@ export const CommandBar: React.FC<CommandBarProps> = ({ engine, currentTool, hid
         <CornerDownLeft size={13} />
       </button>
       {error && <span className="text-rose-400 font-medium max-w-56">{error}</span>}
+      {!error && currentTool === 'edit' && engine?.editMessage && (
+        <span className="text-amber-300 font-medium max-w-56">{engine.editMessage}</span>
+      )}
     </form>
   );
 };

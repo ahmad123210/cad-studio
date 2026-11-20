@@ -134,7 +134,7 @@ export function bindEventsImpl(this: CadEngine): void {
 
       // 0. أوامر التحرير بنقطة أساس (نقل/نسخ/تدوير/تحجيم/مرآة/إزاحة)
       if (this.toolMode === 'edit') {
-        this.handleEditClick(activeWorldPoint, snap.snapped && snap.type !== 'grid', Boolean(e.evt.shiftKey || this.isShiftKeyPressed));
+        this.handleEditClick(activeWorldPoint, snap.snapped && snap.type !== 'grid', Boolean(e.evt.shiftKey || this.isShiftKeyPressed), worldRaw);
         return;
       }
 

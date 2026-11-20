@@ -50,6 +50,9 @@ export const COMMANDS: CadCommand[] = [
   { id: 'mirror', label: 'مرآة', aliases: ['mirror', 'mi', 'مرآة', 'مراة'], defaultCodes: [], remappable: true, run: edit('mirror') },
   { id: 'array', label: 'مصفوفة', aliases: ['array', 'ar', 'مصفوفة'], defaultCodes: [], remappable: true, run: edit('array') },
   { id: 'offset', label: 'إزاحة متوازية', aliases: ['offset', 'o', 'إزاحة', 'ازاحة'], defaultCodes: [], remappable: true, run: edit('offset') },
+  { id: 'trim', label: 'قص', aliases: ['trim', 'tr', 'قص'], defaultCodes: [], remappable: true, run: edit('trim') },
+  { id: 'extend', label: 'تمديد', aliases: ['extend', 'ex', 'تمديد'], defaultCodes: [], remappable: true, run: edit('extend') },
+  { id: 'arraypolar', label: 'مصفوفة دائرية', aliases: ['arraypolar', 'polar', 'ap', 'مصفوفة دائرية', 'دائرية'], defaultCodes: [], remappable: true, run: edit('arraypolar') },
   {
     id: 'erase',
     label: 'حذف المحدد',

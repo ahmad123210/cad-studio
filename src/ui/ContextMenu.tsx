@@ -27,6 +27,7 @@ import {
   Copy as CopyIcon,
   RotateCcw,
   SeparatorVertical,
+  MoveHorizontal,
 } from 'lucide-react';
 import type { EditCommandKind } from '../engine/renderer.ts';
 
@@ -101,7 +102,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
 
   // منع خروج القائمة خارج أبعاد الشاشة
   const menuWidth = 210;
-  const menuHeight = targetObject || selectedCount > 0 ? (onEditCommand ? 560 : 320) : 220;
+  const menuHeight = targetObject || selectedCount > 0 ? (onEditCommand ? 660 : 320) : 220;
   const x = Math.min(position.x, window.innerWidth - menuWidth - 10);
   const y = Math.min(position.y, window.innerHeight - menuHeight - 10);
 
@@ -273,6 +274,36 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
               >
                 <Grid3x3 size={14} className="text-emerald-400" />
                 <span>مصفوفة صفوف × أعمدة</span>
+              </button>
+              <button
+                onClick={() => {
+                  onEditCommand('arraypolar');
+                  onClose();
+                }}
+                className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-neutral-800 text-right cursor-pointer"
+              >
+                <Grid3x3 size={14} className="text-emerald-400" />
+                <span>مصفوفة دائرية</span>
+              </button>
+              <button
+                onClick={() => {
+                  onEditCommand('trim');
+                  onClose();
+                }}
+                className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-neutral-800 text-right cursor-pointer"
+              >
+                <Scissors size={14} className="text-rose-400" />
+                <span>قص (Trim)</span>
+              </button>
+              <button
+                onClick={() => {
+                  onEditCommand('extend');
+                  onClose();
+                }}
+                className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-neutral-800 text-right cursor-pointer"
+              >
+                <MoveHorizontal size={14} className="text-rose-400" />
+                <span>تمديد (Extend)</span>
               </button>
               {hasWall && (
                 <button
