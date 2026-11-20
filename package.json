@@ -17,7 +17,11 @@
     "electron:start": "electron .",
     "build:win": "vite build && electron-builder --win --config electron-builder.json",
     "build:win:portable": "vite build && electron-builder --win portable --config electron-builder.json",
-    "build:win:fast": "vite build && electron-builder --win --dir --config electron-builder.json"
+    "build:win:fast": "vite build && electron-builder --win --dir --config electron-builder.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
@@ -34,15 +38,17 @@
     "vite": "^8.3.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.1",
+    "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "autoprefixer": "^10.4.21",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.21.0",
     "typescript": "^7.0.2",
-    "@types/express": "^4.17.21",
-    "electron": "^33.2.1",
-    "electron-builder": "^25.1.8"
+    "vitest": "^3.2.7"
   }
 }
