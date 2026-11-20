@@ -1347,17 +1347,6 @@ export default function App() {
           className="flex-1 h-full w-full bg-[var(--cad-canvas-bg)] relative overflow-hidden focus:outline-none transition-colors"
           tabIndex={0}
         >
-          {/* زر إعادة إظهار لوحة المعلومات العائم عند إخفائها لتوفير أقصى مساحة عمل */}
-          {!isPropertiesPanelVisible && (
-            <button
-              onClick={() => setIsPropertiesPanelVisible(true)}
-              className="absolute top-3 right-3 z-10 px-2.5 py-1.5 rounded-lg bg-[var(--cad-panel-bg)] hover:bg-[var(--cad-surface-hover)] border border-[var(--cad-border)] text-sky-400 hover:text-sky-300 shadow-md flex items-center gap-1.5 text-xs font-medium transition-all"
-              title="إظهار لوحة معلومات المشروع والخصائص"
-            >
-              <PanelRightOpen size={15} />
-              <span className="hidden sm:inline">لوحة المعلومات</span>
-            </button>
-          )}
           {/* شريط رسم المسارات الكهروميكانيكية العائم */}
           {(currentTool === 'route' || routeData.pointsCount > 0) && (
             <RouteControlBar
@@ -1428,9 +1417,25 @@ export default function App() {
               }}
             />
           )}
-          {/* شريط الأوامر وإدخال الإحداثيات الدقيقة (يُخفى أثناء رسم الجدار لأن WallLengthHud يتولى ذلك) */}
-          <CommandBar engine={engineRef.current} currentTool={currentTool} hidden={isDrawingWallUi} />
         </main>
+
+        {/*
+          ملاحظة: العناصر الظاهرة منذ أول تصيير لا توضع داخل <main>، لأن Konva يفرّغ حاوية اللوحة عند إنشاء المسرح
+          فتختفي من الصفحة. لذلك شريط الأوامر وزر إظهار اللوحة هنا كإخوة للوحة الرسم.
+        */}
+        {/* شريط الأوامر وإدخال الإحداثيات الدقيقة (يُخفى أثناء رسم الجدار لأن WallLengthHud يتولى ذلك) */}
+        <CommandBar engine={engineRef.current} currentTool={currentTool} hidden={isDrawingWallUi} />
+          {/* زر إعادة إظهار لوحة المعلومات العائم عند إخفائها لتوفير أقصى مساحة عمل */}
+          {!isPropertiesPanelVisible && (
+            <button
+              onClick={() => setIsPropertiesPanelVisible(true)}
+              className="absolute top-3 left-3 z-10 px-2.5 py-1.5 rounded-lg bg-[var(--cad-panel-bg)] hover:bg-[var(--cad-surface-hover)] border border-[var(--cad-border)] text-sky-400 hover:text-sky-300 shadow-md flex items-center gap-1.5 text-xs font-medium transition-all"
+              title="إظهار لوحة معلومات المشروع والخصائص"
+            >
+              <PanelRightOpen size={15} />
+              <span className="hidden sm:inline">لوحة المعلومات</span>
+            </button>
+          )}
 
         {/* لوحة الخصائص اليمنى */}
         <PropertiesPanel

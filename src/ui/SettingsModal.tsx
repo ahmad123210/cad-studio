@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { BackupsPanel } from './BackupsPanel.tsx';
+import { ShortcutsPanel } from './ShortcutsPanel.tsx';
 import {
   X,
   Settings,
@@ -268,6 +269,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
 
           <BackupsPanel model={model} />
+
+          <ShortcutsPanel />
 
           {/* 2. قسم دقة الشبكة ومقياس الرسم */}
           <div className="bg-[var(--cad-surface-bg)] border border-[var(--cad-border)] rounded-xl p-4.5 space-y-3">

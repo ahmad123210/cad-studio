@@ -45,6 +45,7 @@ import {
 } from '../../model/lastUsedSettings.ts';
 import type { CadEngine, ToolMode, SketchUpCalibrationEvent, WallDrawingState, EngineCallbacks } from '../renderer.ts';
 import { BoxRect, isObjectInBox, pointInBox, segmentIntersectsBox } from '../geometry/selectionBox.ts';
+import { handleCustomShortcut } from '../commands.ts';
 
 /** الأدوات التي تقبل إدخال أرقام/إحداثيات من لوحة المفاتيح */
 const POINT_INPUT_TOOLS: ToolMode[] = ['wall', 'dimension', 'measure', 'route', 'area', 'symbol', 'door', 'window', 'text', 'calibrate', 'edit'];
@@ -86,6 +87,11 @@ export function handleKeyDownImpl(this: CadEngine, e: KeyboardEvent): void {
       POINT_INPUT_TOOLS.includes(this.toolMode) &&
       (/^(Digit\d|Numpad\d|Period|NumpadDecimal|Minus|NumpadSubtract)$/.test(code) || key === '@')
     ) {
+      return;
+    }
+
+    // الاختصارات المخصصة من الإعدادات لها الأولوية على الجدول الافتراضي
+    if (!hasModifier && handleCustomShortcut(this, code)) {
       return;
     }
 
