@@ -112,3 +112,22 @@ export function computeWallPolygon(wall: WallObject, index: Map<string, WallObje
   if (!joined) return null;
   return [sLeft, eLeft, eRight, sRight];
 }
+
+/**
+ * مخطط الجدار دائماً (مضلع): بقطع مائل عند الوصلات، وبامتداد نصف السماكة عند النهايات الحرة
+ * (مطابق بصرياً لـ lineCap: square). يُستخدم في الرسم المجمّع للمخططات الضخمة.
+ */
+export function wallOutline(wall: WallObject, index: Map<string, WallObject[]>): Point[] | null {
+  const joined = computeWallPolygon(wall, index);
+  if (joined) return joined;
+  const u = unit(wall.start, wall.end);
+  if (!u) return null;
+  const h = (wall.thickness || 20) / 2;
+  const n = { x: -u.y, y: u.x };
+  return [
+    { x: wall.start.x - u.x * h + n.x * h, y: wall.start.y - u.y * h + n.y * h },
+    { x: wall.end.x + u.x * h + n.x * h, y: wall.end.y + u.y * h + n.y * h },
+    { x: wall.end.x + u.x * h - n.x * h, y: wall.end.y + u.y * h - n.y * h },
+    { x: wall.start.x - u.x * h - n.x * h, y: wall.start.y - u.y * h - n.y * h },
+  ];
+}

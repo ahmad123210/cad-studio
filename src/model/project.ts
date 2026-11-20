@@ -1054,7 +1054,19 @@ export class ProjectModel {
     }));
   }
 
+  /** رقم إصدار يزداد مع كل تغيير (لإبطال الفهارس المؤقتة مثل الفهرس المكاني للالتقاط) */
+  private version: number = 0;
+
+  public getVersion(): number {
+    return this.version;
+  }
+
+  public getObjectCount(): number {
+    return this.objects.length;
+  }
+
   private notify(): void {
+    this.version++;
     const data = this.getLiveSnapshot();
     this.listeners.forEach((listener) => listener(data));
   }

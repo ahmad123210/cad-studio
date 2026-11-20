@@ -54,6 +54,7 @@ import {
   getLastUsedSymbolConfig,
 } from '../model/lastUsedSettings.ts';
 import { BoxRect, isObjectInBox } from './geometry/selectionBox.ts';
+import { SpatialIndex } from './geometry/spatialIndex.ts';
 import {
   EditCommandKind,
   EditCommandState,
@@ -303,6 +304,17 @@ export class CadEngine {
     const gridOpts = getGridOptionsForDensity(this.gridDensity, model.getMeta().scale || 50);
     this.snapOptions.gridSize = gridOpts.gridSize;
     this.snapOptions.snapRadius = gridOpts.snapRadius;
+
+    // فهرس مكاني للالتقاط في المخططات الكبيرة (يُبنى عند الحاجة ويُبطل مع كل تغيير في النموذج)
+    SnapEngine.narrowProvider = (all, p, radius) => {
+      if (all.length < CadEngine.SPATIAL_INDEX_MIN_OBJECTS || all.length !== this.model.getObjectCount()) return all;
+      const v = this.model.getVersion();
+      if (!this.spatialIndex || this.spatialIndexVersion !== v) {
+        this.spatialIndex = new SpatialIndex(this.model.getObjects());
+        this.spatialIndexVersion = v;
+      }
+      return this.spatialIndex.query(p.x - radius, p.y - radius, p.x + radius, p.y + radius);
+    };
 
     this.bindEvents();
 
@@ -570,6 +582,11 @@ export class CadEngine {
 
   // ═══ أوامر التحرير بنقطة أساس (tools/editCommands.ts) ═══
   editCmd: EditCommandState | null = null;
+
+  // ═══ الفهرس المكاني للالتقاط (المرحلة 5) ═══
+  static readonly SPATIAL_INDEX_MIN_OBJECTS = 2000;
+  spatialIndex: SpatialIndex | null = null;
+  spatialIndexVersion = -1;
 
   public startEditCommand(kind: EditCommandKind): string | null {
     return startEditCommandImpl.call(this, kind);
@@ -1215,6 +1232,7 @@ export class CadEngine {
   }
 
   public destroy(): void {
+    if (SnapEngine.narrowProvider) SnapEngine.narrowProvider = null;
     window.removeEventListener('keydown', this.handleKeyDown);
     window.removeEventListener('keyup', this.handleKeyUp);
     // إصلاح تسرب: مستمعات النافذة والحاوية لم تكن تُزال، فيبقى المحرك القديم حياً ويستجيب للأحداث
