@@ -75,8 +75,9 @@ export function pickTrimTarget(all: ProjectObject[], p: Point, tolerance: number
       if (r.dist <= tol && (!best || r.dist < best.dist)) best = { obj: w, segIndex: 0, t: r.t, dist: r.dist };
     } else if (o.type === 'line') {
       const l = o as LineObject;
-      for (let i = 0; i < l.points.length - 1; i++) {
-        const r = projectT(p, l.points[i], l.points[i + 1]);
+      const segCount = l.closed && l.points.length > 2 ? l.points.length : l.points.length - 1;
+      for (let i = 0; i < segCount; i++) {
+        const r = projectT(p, l.points[i], l.points[(i + 1) % l.points.length]);
         if (r.dist <= tolerance && (!best || r.dist < best.dist)) best = { obj: l, segIndex: i, t: r.t, dist: r.dist };
       }
     }
@@ -182,7 +183,7 @@ export function planTrim(all: ProjectObject[], click: Point, tolerance: number):
   }
 
   const l = target.obj as LineObject;
-  if (l.closed) return 'قص الخطوط المغلقة غير مدعوم؛ افتحها أولاً';
+  if (l.closed && l.points.length > 2) return planTrimClosed(l, target.segIndex + target.t, segs, plan);
   const i = target.segIndex;
   const a = l.points[i];
   const b = l.points[i + 1];
@@ -200,5 +201,39 @@ export function planTrim(all: ProjectObject[], click: Point, tolerance: number):
   } else {
     plan.updates.push({ id: l.id, after: { points: tail! } as Partial<LineObject> });
   }
+  return plan;
+}
+
+/**
+ * قص خط مغلق: يُزال الجزء المنقور بين أقرب تقاطعين حول الحلقة، ويصبح الباقي خطاً مفتوحاً
+ * يبدأ من التقاطع التالي للنقرة ويلتف حول الحلقة حتى التقاطع السابق لها.
+ * c = موضع النقرة على المحيط بوحدة "رقم القطعة + t".
+ */
+function planTrimClosed(l: LineObject, c: number, segs: Seg[], plan: EditPlan): EditPlan | string {
+  const pts = l.points;
+  const n = pts.length;
+  const at = (s: number): Point => {
+    const m = ((s % n) + n) % n;
+    const k = Math.floor(m);
+    return lerp(pts[k], pts[(k + 1) % n], m - k);
+  };
+  const cuts: number[] = [];
+  for (let k = 0; k < n; k++) {
+    for (const t of intersectParams(pts[k], pts[(k + 1) % n], segs)) {
+      if (t > 1e-6 && t < 1 - 1e-6) cuts.push(k + t);
+    }
+  }
+  const uniq = [...new Set(cuts.map(r6))].sort((x, y) => x - y);
+  if (uniq.length < 2) return 'قص خط مغلق يتطلب حدّين يقطعانه على الأقل';
+  const after = uniq.find((s) => s > c) ?? uniq[0] + n;
+  const before = [...uniq].reverse().find((s) => s < c) ?? uniq[uniq.length - 1] - n;
+  // الجزء المحتفظ به: من after إلى before + n (حول الحلقة)
+  const start = after;
+  const end = before + n;
+  if (end - start < 1e-6) return 'لا يمكن قص هذا الجزء';
+  const out: Point[] = [rp(at(start))];
+  for (let j = Math.floor(start) + 1; j < end - 1e-9; j++) out.push({ ...pts[j % n] });
+  out.push(rp(at(end)));
+  plan.updates.push({ id: l.id, after: { points: out, closed: false } as Partial<LineObject> });
   return plan;
 }

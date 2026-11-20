@@ -8,6 +8,7 @@
 
 import type { CadEngine, ToolMode, EditCommandKind } from './renderer.ts';
 import { getLastUsedSettings, updateLastUsedSettings } from '../model/lastUsedSettings.ts';
+import type { AlignMode } from '../model/align.ts';
 
 export interface CadCommand {
   id: string;
@@ -29,6 +30,7 @@ const tool = (mode: ToolMode) => (engine: CadEngine) => {
   return null;
 };
 const edit = (kind: EditCommandKind) => (engine: CadEngine) => engine.startEditCommand(kind);
+const align = (mode: AlignMode) => (engine: CadEngine) => engine.alignSelection(mode);
 
 export const COMMANDS: CadCommand[] = [
   { id: 'select', label: 'تحديد', aliases: ['select', 'تحديد', 'v'], defaultCodes: ['KeyV', 'Digit1'], remappable: true, run: tool('select') },
@@ -53,6 +55,14 @@ export const COMMANDS: CadCommand[] = [
   { id: 'trim', label: 'قص', aliases: ['trim', 'tr', 'قص'], defaultCodes: [], remappable: true, run: edit('trim') },
   { id: 'extend', label: 'تمديد', aliases: ['extend', 'ex', 'تمديد'], defaultCodes: [], remappable: true, run: edit('extend') },
   { id: 'arraypolar', label: 'مصفوفة دائرية', aliases: ['arraypolar', 'polar', 'ap', 'مصفوفة دائرية', 'دائرية'], defaultCodes: [], remappable: true, run: edit('arraypolar') },
+  { id: 'alignLeft', label: 'محاذاة لليسار', aliases: ['alignleft', 'all', 'محاذاة يسار'], defaultCodes: [], remappable: true, run: align('left') },
+  { id: 'alignRight', label: 'محاذاة لليمين', aliases: ['alignright', 'alr', 'محاذاة يمين'], defaultCodes: [], remappable: true, run: align('right') },
+  { id: 'alignTop', label: 'محاذاة للأعلى', aliases: ['aligntop', 'alt', 'محاذاة أعلى', 'محاذاة اعلى'], defaultCodes: [], remappable: true, run: align('top') },
+  { id: 'alignBottom', label: 'محاذاة للأسفل', aliases: ['alignbottom', 'alb', 'محاذاة أسفل', 'محاذاة اسفل'], defaultCodes: [], remappable: true, run: align('bottom') },
+  { id: 'alignCenterX', label: 'توسيط أفقي', aliases: ['aligncenterx', 'alcx', 'توسيط أفقي', 'توسيط افقي'], defaultCodes: [], remappable: true, run: align('centerX') },
+  { id: 'alignCenterY', label: 'توسيط رأسي', aliases: ['aligncentery', 'alcy', 'توسيط رأسي', 'توسيط راسي'], defaultCodes: [], remappable: true, run: align('centerY') },
+  { id: 'distributeH', label: 'توزيع أفقي', aliases: ['distributeh', 'dih', 'توزيع أفقي', 'توزيع افقي'], defaultCodes: [], remappable: true, run: align('distributeH') },
+  { id: 'distributeV', label: 'توزيع رأسي', aliases: ['distributev', 'div', 'توزيع رأسي', 'توزيع راسي'], defaultCodes: [], remappable: true, run: align('distributeV') },
   {
     id: 'erase',
     label: 'حذف المحدد',

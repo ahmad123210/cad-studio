@@ -82,6 +82,7 @@ import { renderTextObjectImpl, renderDimensionImpl } from './render/annotations.
 import { renderDoorImpl, renderWindowImpl } from './render/openings.ts';
 import { renderWallHandlesImpl } from './render/wallHandles.ts';
 import { renderInteractionLayerImpl, renderAngleGuidelineImpl, renderFloatingBadgeImpl, renderSnapIndicatorOnlyImpl, renderSnapIndicatorShapesImpl } from './render/interactionLayer.ts';
+import { planAlign, ALIGN_LABELS, type AlignMode } from '../model/align.ts';
 
 
 export type ToolMode =
@@ -592,6 +593,16 @@ export class CadEngine {
 
   public startEditCommand(kind: EditCommandKind): string | null {
     return startEditCommandImpl.call(this, kind);
+  }
+
+  /** محاذاة/توزيع العناصر المحددة (خطوة تراجع واحدة). يعيد رسالة خطأ أو null */
+  public alignSelection(mode: AlignMode): string | null {
+    const ids = this.getSelectedObjectIds();
+    const plan = planAlign(this.model.getObjects(), ids, mode);
+    if (typeof plan === 'string') return plan;
+    this.model.applyEdits(plan, ALIGN_LABELS[mode]);
+    this.render();
+    return null;
   }
 
   public isEditAwaitingValue(): boolean {
