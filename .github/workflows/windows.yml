@@ -59,7 +59,12 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+        # إن أُنشئ الإصدار يدوياً من واجهة GitHub (وهو ما ينشئ الوسم) تُرفق الملفات به، وإلا تُنشأ مسودة جديدة
         run: |
-          gh release create "${GITHUB_REF_NAME}" dist-electron/*.exe \
-            --draft --title "CAD Studio ${GITHUB_REF_NAME}" \
-            --notes "نسخة ويندوز: ملف Setup للتثبيت، وملف portable للتشغيل دون تثبيت."
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" dist-electron/*.exe --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" dist-electron/*.exe \
+              --draft --title "CAD Studio ${GITHUB_REF_NAME}" \
+              --notes "نسخة ويندوز: ملف Setup للتثبيت، وملف portable للتشغيل دون تثبيت."
+          fi

@@ -73,7 +73,7 @@ npm run build:win           # مثبّت NSIS + محمول
 
 **البناء السحابي بدون جهاز ويندوز:** سير العمل `.github/workflows/windows.yml` يبني الملفين على خادم ويندوز:
 - يدوياً: تبويب **Actions** ← **Windows build** ← **Run workflow**، ثم نزّل `cad-studio-windows` من أسفل صفحة التشغيل.
-- عند إصدار نسخة: `git tag v1.1.0 && git push origin v1.1.0` فتُنشأ مسودة إصدار في **Releases** مرفق بها `CAD Studio-Setup-<version>.exe` و`CAD Studio-<version>-portable.exe`.
+- عند إصدار نسخة: من صفحة **Releases** ← **Draft a new release** ← اكتب وسماً جديداً مثل `v1.1.0` ← **Publish release** (أو من الطرفية: `git tag v1.1.0 && git push origin v1.1.0`). يُبنى التطبيق تلقائياً وتُرفق بالإصدار `CAD Studio-Setup-<version>.exe` و`CAD Studio-<version>-portable.exe` خلال ~10 دقائق.
 
 > الملفات غير موقّعة رقمياً، لذا قد يظهر تحذير SmartScreen عند أول تشغيل («مزيد من المعلومات» ← «تشغيل على أي حال»).
 
