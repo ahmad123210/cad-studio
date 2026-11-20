@@ -26,6 +26,7 @@
         "arch": ["x64"]
       }
     ],
+    "icon": "build/icon.ico",
     "requestedExecutionLevel": "asInvoker"
   },
   "nsis": {
@@ -33,10 +34,12 @@
     "allowToChangeInstallationDirectory": true,
     "createDesktopShortcut": true,
     "createStartMenuShortcut": true,
-    "shortcutName": "CAD Studio"
+    "shortcutName": "CAD Studio",
+    "artifactName": "${productName}-Setup-${version}.exe"
   },
   "portable": {
-    "splashImage": null
+    "artifactName": "${productName}-${version}-portable.exe"
   },
+  "publish": null,
   "compression": "normal"
 }
