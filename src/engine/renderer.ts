@@ -2225,6 +2225,9 @@ export class CadEngine {
     this.endGesture();
     this.callbacks.onCameraChange(this.camera.getState());
     this.render();
+    // رسم متزامن للمشهد ولوحة الإصابة (Hit Canvas): batchDraw مؤجل للإطار القادم،
+    // بينما Konva يفحص الإصابة لهذه النقرة الآن — بدونه تسقط النقرة على الخلفية ولا يبدأ السحب
+    this.objectsLayer.draw();
   }
 
   /**
