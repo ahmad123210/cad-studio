@@ -3,7 +3,7 @@
   "description": "منصة التصميم الهندسي والمعماري والكهروميكانيكي الاحترافية (Professional Architectural & MEP 2D CAD Platform)",
   "author": "Ahmad Khaled Natour -Knatoura@gmail.com",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {

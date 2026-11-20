@@ -2,7 +2,10 @@
 node_modules/
 
 # ── مخرجات البناء ──
-build/
+# مجلد build/ يحوي موارد أيقونة ويندوز لـ electron-builder فقط، وما عداها يُتجاهل
+**/build/*
+!/build/icon.ico
+!/build/icon.png
 dist/
 dist-electron/
 release/

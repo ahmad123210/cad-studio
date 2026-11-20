@@ -25,7 +25,8 @@ function createWindow() {
     minWidth: 1024,
     minHeight: 700,
     title: 'نظام التصميم الهندسي الذكي - CAD Studio',
-    icon: path.join(__dirname, '..', 'public', 'icon.svg'),
+    // ويندوز لا يدعم SVG كأيقونة نافذة، ومجلد public غير مضمّن في الحزمة: نستخدم PNG المنسوخ إلى dist
+    icon: path.join(__dirname, '..', 'dist', 'icon-256.png'),
     backgroundColor: '#0f172a',
     autoHideMenuBar: false,
     show: false, // لا تظهر النافذة حتى تصبح جاهزة تماماً لمنع الوميض
