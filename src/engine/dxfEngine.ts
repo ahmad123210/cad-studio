@@ -1204,7 +1204,6 @@ export function convertDxfToProjectData(
         start,
         end,
         thickness: 20,
-        rotation: 0,
       } as WallObject);
     }
   }
@@ -1225,7 +1224,6 @@ export function convertDxfToProjectData(
           start: p1,
           end: p2,
           thickness: 20,
-          rotation: 0,
         } as WallObject);
       }
     }
@@ -1241,7 +1239,6 @@ export function convertDxfToProjectData(
           start: pLast,
           end: pFirst,
           thickness: 20,
-          rotation: 0,
         } as WallObject);
       }
     }

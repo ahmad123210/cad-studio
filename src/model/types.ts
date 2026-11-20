@@ -58,14 +58,14 @@ export interface BaseObject {
  * عنصر الجدار (Wall)
  * start & end: إحداثيات حقيقية بوحدة العالم (World Coordinates)
  * thickness: سماكة الجدار بوحدة العالم (افتراضياً 20 بكسل = 0.20م أو 20سم)
- * rotation: زاوية دوران الجدار بالدرجات
+ * ملاحظة: اتجاه الجدار يُحسب من start/end. أُزيل الحقل rotation لأنه لم يكن مقروءاً في أي مكان؛
+ * الملفات القديمة التي تحتويه تُفتح بشكل طبيعي (يُتجاهل).
  */
 export interface WallObject extends BaseObject {
   type: 'wall';
   start: Point;
   end: Point;
   thickness: number;
-  rotation: number;
 }
 
 /**

@@ -93,7 +93,8 @@ ${JSON.stringify(issues?.slice(0, 8) || [], null, 2)}
  * دمج Vite في وضع التطوير أو تقديم ملفات dist في الإنتاج
  */
 async function startServer() {
-  const isProduction = process.env.NODE_ENV === 'production';
+  // --production يعمل على كل الأنظمة (Windows/Linux) دون الحاجة لضبط NODE_ENV يدوياً
+  const isProduction = process.env.NODE_ENV === 'production' || process.argv.includes('--production');
   const distDir = path.resolve(__dirname, 'dist');
   const indexHtml = path.resolve(distDir, 'index.html');
 

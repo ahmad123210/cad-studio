@@ -584,7 +584,6 @@ export class CadEngine {
       start: { ...this.wallStartPoint },
       end: { ...endPoint },
       thickness: currentSettings.wallThickness,
-      rotation: 0,
     };
 
     this.model.addObject(newWall);
@@ -1281,7 +1280,6 @@ export class CadEngine {
               start: { ...this.wallStartPoint },
               end: { ...endPoint },
               thickness: currentSettings.wallThickness,
-              rotation: 0,
             };
             this.model.addObject(newWall);
             this.wallStartPoint = { ...endPoint };
@@ -1820,10 +1818,8 @@ export class CadEngine {
       return;
     }
 
+    // ملاحظة: Ctrl+A و Delete/Backspace تُعالَج في App.tsx فقط (أُزيل الازدواج من هنا)
     if ((e.ctrlKey || e.metaKey) && (e.code === 'KeyA' || e.key.toLowerCase() === 'a' || e.key === 'ش')) {
-      e.preventDefault();
-      const allIds = this.model.getObjects().map((o) => o.id);
-      this.selectObjects(allIds);
       return;
     }
 
@@ -1905,15 +1901,6 @@ export class CadEngine {
         this.finishRoute();
       } else if (this.toolMode === 'area' && this.areaPoints.length >= 3) {
         this.closeAreaPolygon();
-      }
-    } else if (e.code === 'Delete' || e.code === 'Backspace') {
-      if (this.selectedObjectIds.length > 0) {
-        this.model.deleteObjects(this.selectedObjectIds);
-        this.deselectAll();
-      } else if (this.selectedObjectId) {
-        this.model.deleteObject(this.selectedObjectId);
-        this.selectObject(null);
-        this.render();
       }
     }
   };
@@ -2574,15 +2561,7 @@ export class CadEngine {
       });
       group.add(wallLine);
 
-      // خط استهداف عريض غير مرئي لتسهيل التقاط وتحديد الجدار حتى في الشبكة الدقيقة 10سم
-      group.add(
-        new Konva.Line({
-          points: [sScreen.x, sScreen.y, eScreen.x, eScreen.y],
-          stroke: 'transparent',
-          strokeWidth: Math.max(28, screenThickness + 18),
-          lineCap: 'round',
-        })
-      );
+      // (أُزيل خط الاستهداف الشفاف المكرر: hitStrokeWidth على wallLine أعلاه يؤدي الوظيفة نفسها بعقدة أقل)
 
       // مستوى التفاصيل (LOD): خط المحور لا يُرى عملياً عندما تكون سماكة الجدار على الشاشة أقل من 3px
       if (screenThickness >= 3 || isSelected || this.disableCulling) {

@@ -125,7 +125,6 @@ function createSampleElements(layerId: string): ProjectObject[] {
       start: { x: -150, y: -100 },
       end: { x: 150, y: -100 },
       thickness: 20,
-      rotation: 0,
     },
     {
       id: 'wall_east',
@@ -134,7 +133,6 @@ function createSampleElements(layerId: string): ProjectObject[] {
       start: { x: 150, y: -100 },
       end: { x: 150, y: 100 },
       thickness: 20,
-      rotation: 0,
     },
     {
       id: 'wall_south',
@@ -143,7 +141,6 @@ function createSampleElements(layerId: string): ProjectObject[] {
       start: { x: 150, y: 100 },
       end: { x: -150, y: 100 },
       thickness: 20,
-      rotation: 0,
     },
     {
       id: 'wall_west',
@@ -152,7 +149,6 @@ function createSampleElements(layerId: string): ProjectObject[] {
       start: { x: -150, y: 100 },
       end: { x: -150, y: -100 },
       thickness: 20,
-      rotation: 0,
     },
     {
       id: 'wall_partition',
@@ -161,7 +157,6 @@ function createSampleElements(layerId: string): ProjectObject[] {
       start: { x: 0, y: -100 },
       end: { x: 0, y: 40 },
       thickness: 15,
-      rotation: 0,
     },
   ];
 
