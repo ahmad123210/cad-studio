@@ -73,3 +73,31 @@ describe('applyEdits', () => {
     expect((m.getObjectById('a') as any).end).toEqual({ x: 300, y: 0 });
   });
 });
+
+describe('trim closed lines', () => {
+  // مربع مغلق 0..200 يقطعه جدار رأسي عند x=100 (يقطع الضلع العلوي والسفلي)
+  const square = () =>
+    ({ id: 'sq', type: 'line', layerId: 'arch', closed: true, points: [{ x: 0, y: 0 }, { x: 200, y: 0 }, { x: 200, y: 200 }, { x: 0, y: 200 }] }) as ProjectObject;
+  const cutter = () => W('c', 100, -50, 100, 250);
+
+  it('removes the clicked side of the loop and opens the polyline', () => {
+    const plan = planTrim([square(), cutter()], { x: 200, y: 100 }, 12); // النقر على الضلع الأيمن
+    if (typeof plan === 'string') throw new Error(plan);
+    const after = plan.updates[0].after as any;
+    expect(after.closed).toBe(false);
+    // يبقى النصف الأيسر: من (100,200) مروراً بـ(0,200) و(0,0) حتى (100,0)
+    expect(after.points).toEqual([{ x: 100, y: 200 }, { x: 0, y: 200 }, { x: 0, y: 0 }, { x: 100, y: 0 }]);
+  });
+
+  it('works when the click is on the closing segment', () => {
+    const plan = planTrim([square(), cutter()], { x: 0, y: 100 }, 12); // الضلع الأيسر = قطعة الإغلاق
+    if (typeof plan === 'string') throw new Error(plan);
+    const after = plan.updates[0].after as any;
+    expect(after.points).toEqual([{ x: 100, y: 0 }, { x: 200, y: 0 }, { x: 200, y: 200 }, { x: 100, y: 200 }]);
+  });
+
+  it('needs at least two cuts', () => {
+    const r = planTrim([square(), W('c', 100, -50, 100, 50)], { x: 200, y: 100 }, 12);
+    expect(typeof r).toBe('string');
+  });
+});

@@ -28,8 +28,28 @@ import {
   RotateCcw,
   SeparatorVertical,
   MoveHorizontal,
+  AlignHorizontalJustifyStart,
+  AlignHorizontalJustifyEnd,
+  AlignHorizontalJustifyCenter,
+  AlignVerticalJustifyStart,
+  AlignVerticalJustifyEnd,
+  AlignVerticalJustifyCenter,
+  AlignHorizontalDistributeCenter,
+  AlignVerticalDistributeCenter,
 } from 'lucide-react';
 import type { EditCommandKind } from '../engine/renderer.ts';
+import { ALIGN_LABELS, type AlignMode } from '../model/align.ts';
+
+const ALIGN_BUTTONS: { mode: AlignMode; Icon: React.ComponentType<{ size?: number; className?: string }>; minCount: number }[] = [
+  { mode: 'left', Icon: AlignHorizontalJustifyStart, minCount: 2 },
+  { mode: 'centerX', Icon: AlignHorizontalJustifyCenter, minCount: 2 },
+  { mode: 'right', Icon: AlignHorizontalJustifyEnd, minCount: 2 },
+  { mode: 'top', Icon: AlignVerticalJustifyStart, minCount: 2 },
+  { mode: 'centerY', Icon: AlignVerticalJustifyCenter, minCount: 2 },
+  { mode: 'bottom', Icon: AlignVerticalJustifyEnd, minCount: 2 },
+  { mode: 'distributeH', Icon: AlignHorizontalDistributeCenter, minCount: 3 },
+  { mode: 'distributeV', Icon: AlignVerticalDistributeCenter, minCount: 3 },
+];
 
 export interface ContextMenuProps {
   position: { x: number; y: number } | null;
@@ -51,6 +71,8 @@ export interface ContextMenuProps {
   onClose: () => void;
   /** بدء أمر تحرير بنقطة أساس على التحديد */
   onEditCommand?: (kind: EditCommandKind) => void;
+  /** محاذاة/توزيع التحديد المتعدد */
+  onAlign?: (mode: AlignMode) => void;
 }
 
 export const ContextMenu: React.FC<ContextMenuProps> = ({
@@ -72,6 +94,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
   onAddSheet,
   onClose,
   onEditCommand,
+  onAlign,
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -102,7 +125,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
 
   // منع خروج القائمة خارج أبعاد الشاشة
   const menuWidth = 210;
-  const menuHeight = targetObject || selectedCount > 0 ? (onEditCommand ? 660 : 320) : 220;
+  const menuHeight = targetObject || selectedCount > 0 ? (onEditCommand ? (onAlign && selectedCount >= 2 ? 710 : 660) : 320) : 220;
   const x = Math.min(position.x, window.innerWidth - menuWidth - 10);
   const y = Math.min(position.y, window.innerHeight - menuHeight - 10);
 
@@ -305,6 +328,28 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
                 <MoveHorizontal size={14} className="text-rose-400" />
                 <span>تمديد (Extend)</span>
               </button>
+              {onAlign && selectedCount >= 2 && (
+                <div className="px-2.5 py-1.5" data-testid="align-toolbar">
+                  <div className="text-[10px] text-neutral-500 mb-1">محاذاة وتوزيع</div>
+                  <div className="flex items-center gap-1 flex-wrap" dir="ltr">
+                    {ALIGN_BUTTONS.map(({ mode, Icon, minCount }) => (
+                      <button
+                        key={mode}
+                        title={ALIGN_LABELS[mode]}
+                        aria-label={ALIGN_LABELS[mode]}
+                        disabled={selectedCount < minCount}
+                        onClick={() => {
+                          onAlign(mode);
+                          onClose();
+                        }}
+                        className="p-1.5 rounded-md hover:bg-neutral-800 text-amber-400 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                      >
+                        <Icon size={15} />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               {hasWall && (
                 <button
                   onClick={() => {

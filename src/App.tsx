@@ -1633,6 +1633,10 @@ export default function App() {
             const err = engineRef.current?.startEditCommand(kind);
             if (err) alert(err);
           }}
+          onAlign={(mode) => {
+            const err = engineRef.current?.alignSelection(mode);
+            if (err) alert(err);
+          }}
           onSelectAll={handleContextMenuSelectAll}
           onZoomFit={() => engineRef.current?.resetZoom()}
           onOpenProperties={() => setIsPropertiesPanelVisible(true)}
