@@ -17,6 +17,7 @@ import {
   RouteObject,
   RouteKind,
   TextObject,
+  LineObject,
   DoorOpenDirection,
   BackgroundImageData,
 } from '../../model/types.ts';
@@ -123,9 +124,15 @@ export function renderObjectsLayerImpl(this: CadEngine): void {
           const t = o as SymbolObject;
           return inView(t.x - 100, t.y - 100, t.x + 100, t.y + 100);
         }
-        case 'route': {
+        case 'route':
+        case 'line': {
           const pts = (o as RouteObject).points;
-          return pts.some((p) => inView(p.x, p.y, p.x, p.y));
+          if (pts.length === 0) return false;
+          let a = Infinity, b = Infinity, c = -Infinity, d = -Infinity;
+          for (const p of pts) {
+            if (p.x < a) a = p.x; if (p.y < b) b = p.y; if (p.x > c) c = p.x; if (p.y > d) d = p.y;
+          }
+          return inView(a, b, c, d);
         }
       }
       return false;
@@ -135,7 +142,7 @@ export function renderObjectsLayerImpl(this: CadEngine): void {
     if (batchMode) {
       const sel = (id: string) => this.isObjectSelected(id);
       const input: BatchInput = {
-        walls: [], doors: [], windows: [], dimensions: [], symbols: [], routes: [], texts: [],
+        walls: [], doors: [], windows: [], dimensions: [], symbols: [], routes: [], texts: [], lines: [],
         layerById, wallEndpointIndex,
       };
       for (const o of objects) {
@@ -156,6 +163,7 @@ export function renderObjectsLayerImpl(this: CadEngine): void {
           case 'symbol': input.symbols.push(o as SymbolObject); break;
           case 'route': input.routes.push(o as RouteObject); break;
           case 'text': input.texts.push(o as TextObject); break;
+          case 'line': input.lines.push(o as LineObject); break;
         }
       }
       renderBatchedImpl.call(this, input);
@@ -163,6 +171,17 @@ export function renderObjectsLayerImpl(this: CadEngine): void {
     /** في الوضع المجمّع تُرسم كعُقد كاملة فقط العناصر المحددة (أو فتحات الجدار المحدد) */
     const skipForBatch = (id: string, hostId?: string): boolean =>
       batchMode && !this.isObjectSelected(id) && !(hostId !== undefined && this.isObjectSelected(hostId));
+
+    // 0. الخطوط الحرة (تحت الجدران: غالباً خلفية مستوردة من DXF)
+    for (const obj of objects) {
+      if (obj.type !== 'line') continue;
+      const ln = obj as LineObject;
+      const layer = layerById.get(ln.layerId);
+      if (layer && !layer.visible) continue;
+      if (skipForBatch(ln.id)) continue;
+      if (!this.isObjectSelected(ln.id) && !quickInView(ln)) continue;
+      this.renderLinework(ln, layer?.locked ?? false, layer?.color || '#94a3b8', layer?.opacity ?? 1);
+    }
 
     // 1. رسم الجدران
     for (const obj of objects) {

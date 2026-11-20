@@ -14,6 +14,7 @@ import type {
   SymbolObject,
   RouteObject,
   TextObject,
+  LineObject,
   DoorOpenDirection,
 } from './types.ts';
 
@@ -141,6 +142,10 @@ export function transformUpdates(
       const r = obj as RouteObject;
       return { points: r.points.map(spec.map) } as Partial<RouteObject>;
     }
+    case 'line': {
+      const l = obj as LineObject;
+      return { points: l.points.map(spec.map) } as Partial<LineObject>;
+    }
     case 'text': {
       const t = obj as TextObject;
       const p = spec.map({ x: t.x, y: t.y });
@@ -214,8 +219,8 @@ export function selectionCenter(objs: ProjectObject[]): Point | null {
       inc((o as WallObject).end);
     } else if (o.type === 'symbol' || o.type === 'text') {
       inc({ x: (o as SymbolObject).x, y: (o as SymbolObject).y });
-    } else if (o.type === 'route') {
-      (o as RouteObject).points.forEach(inc);
+    } else if (o.type === 'route' || o.type === 'line') {
+      (o as RouteObject | LineObject).points.forEach(inc);
     }
   }
   if (!isFinite(minX)) return null;

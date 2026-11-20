@@ -16,6 +16,7 @@ import { SymbolProperties } from './properties/SymbolProperties.tsx';
 import { RouteProperties } from './properties/RouteProperties.tsx';
 import { TextProperties } from './properties/TextProperties.tsx';
 import { ProjectSummary } from './properties/ProjectSummary.tsx';
+import { LineProperties } from './properties/LineProperties.tsx';
 
 // إعادة تصدير للتوافق مع أي استيراد سابق
 export { PrecisionNumberInput } from './properties/inputs.tsx';
@@ -151,6 +152,10 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   // ============================================
   // حالة 6: العنصر المحدد هو ملاحظة وتلميح نصي (Text / Annotation Note Object)
   // ============================================
+  if (selectedObject?.type === 'line') {
+    return <LineProperties {...ctx} />;
+  }
+
   if (selectedObject?.type === 'text') {
     return <TextProperties {...ctx} />;
   }

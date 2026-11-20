@@ -6,6 +6,7 @@
  */
 
 import React, { useState, useRef } from 'react';
+import type { DxfWallMode } from '../engine/dxfImport.ts';
 import {
   X,
   FileCode2,
@@ -56,6 +57,7 @@ export const DxfModal: React.FC<DxfModalProps> = ({
   const [importFile, setImportFile] = useState<File | null>(null);
   const [parseResult, setParseResult] = useState<DxfParseResult | null>(null);
   const [importMode, setImportMode] = useState<'replace' | 'merge'>('replace');
+  const [wallMode, setWallMode] = useState<DxfWallMode>('auto');
   const [isParsing, setIsParsing] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -126,7 +128,8 @@ export const DxfModal: React.FC<DxfModalProps> = ({
     const scale = model.getMeta().scale || 50;
     const { objects: newObjects, layers: newLayers } = convertDxfToProjectData(
       parseResult,
-      scale
+      scale,
+      { wallMode }
     );
 
     if (importMode === 'replace') {
@@ -137,7 +140,8 @@ export const DxfModal: React.FC<DxfModalProps> = ({
           model.addLayer(lay);
         }
       });
-      newObjects.forEach((obj) => model.addObject(obj, true));
+      // إضافة دفعة واحدة: خطوة تراجع واحدة وإعادة رسم واحدة (كانت عنصراً عنصراً)
+      model.addObjects(newObjects, `استيراد DXF (${newObjects.length} عنصر)`);
     } else {
       // دمج مع المخطط الحالي
       newLayers.forEach((lay) => {
@@ -145,7 +149,7 @@ export const DxfModal: React.FC<DxfModalProps> = ({
           model.addLayer(lay);
         }
       });
-      newObjects.forEach((obj) => model.addObject(obj, true));
+      model.addObjects(newObjects, `استيراد DXF (${newObjects.length} عنصر)`);
     }
 
     onProjectUpdated();
@@ -419,6 +423,35 @@ export const DxfModal: React.FC<DxfModalProps> = ({
                         {parseResult.circles.length}
                       </div>
                     </div>
+                    <div className="bg-neutral-900 p-2 rounded-lg border border-neutral-800">
+                      <div className="text-neutral-400 text-[10px]">الأقواس (Arcs)</div>
+                      <div className="font-bold text-white text-sm font-mono-cad">{parseResult.arcs.length}</div>
+                    </div>
+                    <div className="bg-neutral-900 p-2 rounded-lg border border-neutral-800">
+                      <div className="text-neutral-400 text-[10px]">الطبقات (Layers)</div>
+                      <div className="font-bold text-white text-sm font-mono-cad">{parseResult.layers.length}</div>
+                    </div>
+                    <div className="bg-neutral-900 p-2 rounded-lg border border-neutral-800">
+                      <div className="text-neutral-400 text-[10px]">الكتل / الإدراجات</div>
+                      <div className="font-bold text-white text-sm font-mono-cad">
+                        {parseResult.blockCount ?? 0} / {parseResult.inserts.length}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* تحويل الخطوط: جدران أم خطوط حرة */}
+                  <div className="pt-2 border-t border-neutral-800 flex flex-col gap-1.5 text-xs">
+                    <span className="text-neutral-400">تحويل الخطوط إلى جدران:</span>
+                    <select
+                      value={wallMode}
+                      onChange={(e) => setWallMode(e.target.value as DxfWallMode)}
+                      className="bg-neutral-800 border border-neutral-700 rounded-md px-2 py-1.5 text-xs"
+                    >
+                      <option value="auto">تلقائي (حسب أسماء الطبقات إن وُجدت طبقة جدران، وإلا الكل)</option>
+                      <option value="byLayer">طبقات الجدران فقط (WALL / A-WALL / جدار...) والباقي خطوط</option>
+                      <option value="all">كل الخطوط جدران (السلوك السابق)</option>
+                      <option value="none">لا شيء: استيراد كل الرسم كخطوط</option>
+                    </select>
                   </div>
 
                   {/* خيار الاستبدال أو الدمج */}
