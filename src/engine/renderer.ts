@@ -111,6 +111,8 @@ export interface EngineCallbacks {
   onContextMenu?: (event: { clientX: number; clientY: number; targetObjectId: string | null }) => void;
   onToolModeChange?: (mode: ToolMode) => void;
   onSelectionSubModeChange?: (subMode: 'single' | 'box' | 'multi') => void;
+  /** تغيّر وضع التعامد (F8) */
+  onOrthoModeChange?: (enabled: boolean) => void;
 }
 
 
@@ -447,6 +449,7 @@ export class CadEngine {
     if (this.toolMode !== mode) {
       this.toolMode = mode;
       this.cancelDrawing();
+      this.trackPoints = [];
       if (mode !== 'select') {
         this.deselectAll();
       }
@@ -537,7 +540,141 @@ export class CadEngine {
     const zoom = this.camera.getState().zoom || 1;
     const base = this.snapOptions.snapRadius;
     const factor = Math.max(0.25, Math.min(4, 1 / zoom));
-    return { ...this.snapOptions, snapRadius: base * factor };
+    const opts: SnapOptions = { ...this.snapOptions, snapRadius: base * factor };
+    // أدوات الرسم فقط: الالتقاط العمودي من نقطة البداية + تتبع المحاذاة
+    if (CadEngine.TRACKING_TOOLS.includes(this.toolMode)) {
+      const origin = this.getDrawingOrigin();
+      opts.fromPoint = origin;
+      const pts = origin ? [origin, ...this.trackPoints] : [...this.trackPoints];
+      if (pts.length > 0) opts.trackPoints = pts;
+    }
+    return opts;
+  }
+
+  // ═══ دقة الرسم: التعامد F8، تتبع المحاذاة، والإدخال الرقمي للإحداثيات ═══
+
+  /** الأدوات التي يُفعَّل فيها تتبع المحاذاة والالتقاط العمودي */
+  static readonly TRACKING_TOOLS: ToolMode[] = ['wall', 'dimension', 'measure', 'route', 'area', 'calibrate'];
+  /** نقاط التقاط مكتسبة (نهايات/منتصفات/تقاطعات مرّ عليها المؤشر) لتتبع المحاذاة */
+  trackPoints: Point[] = [];
+  /** نقطة مفروضة من شريط الأوامر تُستخدم بدلاً من موضع المؤشر في النقرة المحاكاة */
+  forcedInputPoint: Point | null = null;
+  /** آخر نقطة أُدخلت أو نُقرت (مرجع الإحداثيات النسبية @ عند عدم وجود أمر جارٍ) */
+  lastInputPoint: Point | null = null;
+  /** آخر موضع للمؤشر بإحداثيات العالم (لاتجاه إدخال "الطول فقط") */
+  lastCursorWorld: Point | null = null;
+
+  public getOrthoMode(): boolean {
+    return SnapEngine.orthoMode;
+  }
+
+  public setOrthoMode(enabled: boolean): void {
+    SnapEngine.orthoMode = enabled;
+    this.callbacks.onOrthoModeChange?.(enabled);
+    this.renderInteractionLayer(this.isShiftKeyPressed);
+  }
+
+  public toggleOrthoMode(): void {
+    this.setOrthoMode(!SnapEngine.orthoMode);
+  }
+
+  /** اكتساب نقطة تتبع (بحد أقصى 4 نقاط، الأحدث أولاً) */
+  acquireTrackPoint(p: Point): void {
+    if (this.trackPoints.some((t) => Math.abs(t.x - p.x) < 0.5 && Math.abs(t.y - p.y) < 0.5)) return;
+    this.trackPoints = [{ x: p.x, y: p.y }, ...this.trackPoints].slice(0, 4);
+  }
+
+  /** نقطة أصل الأمر الجاري (بداية الجدار، آخر نقطة مسار...) أو null */
+  public getDrawingOrigin(): Point | null {
+    if (this.isDrawingWall && this.wallStartPoint) return this.wallStartPoint;
+    if (this.isDrawingDimension && this.dimensionStartPoint) return this.dimensionStartPoint;
+    if (this.isMeasuring && this.measureStartPoint) return this.measureStartPoint;
+    if (this.isCalibrating && this.calibrateStartPoint) return this.calibrateStartPoint;
+    if (this.toolMode === 'route' && this.routePoints.length > 0) return this.routePoints[this.routePoints.length - 1];
+    if (this.toolMode === 'area' && this.areaPoints.length > 0) return this.areaPoints[this.areaPoints.length - 1];
+    return null;
+  }
+
+  /**
+   * إدخال نقطة رقمياً (بالمتر) كأنها نقرة دقيقة على اللوحة للأداة الحالية:
+   *  - مطلق:  x,y        مثال 3,2.5
+   *  - نسبي:  @dx,dy     مثال @4,0
+   *  - قطبي:  @طول<زاوية مثال @3<90 (الزاوية بنفس اصطلاح البرنامج: 0° يمين، 90° للأسفل)
+   *  - طول فقط: 3.5  ← على امتداد اتجاه المؤشر من نقطة البداية
+   * يعيد رسالة خطأ عربية أو null عند النجاح.
+   */
+  /** إنهاء الأمر الجاري متعدد النقاط (Enter): إنهاء المسار أو إغلاق مضلع المساحة. يعيد true إن نفّذ شيئاً */
+  public completeCurrentCommand(): boolean {
+    if (this.toolMode === 'route' && this.isDrawingRoute && this.routePoints.length >= 2) {
+      this.finishRoute();
+      return true;
+    }
+    if (this.toolMode === 'area' && this.areaPoints.length >= 3) {
+      this.closeAreaPolygon();
+      return true;
+    }
+    if (this.isDrawingWall) {
+      this.cancelDrawing();
+      return true;
+    }
+    return false;
+  }
+
+  public applyPointInput(text: string): string | null {
+    if (this.toolMode === 'select' || this.toolMode === 'pan') {
+      return 'اختر أداة رسم أولاً (جدار، بُعد، مسار...)';
+    }
+    const ppm = this.model.getMeta().scale || 50;
+    const raw = text.trim().replace(/،/g, ',').replace(/\s+/g, '');
+    if (!raw) return 'أدخل قيمة';
+    const origin = this.getDrawingOrigin();
+    const ref = origin || this.lastInputPoint;
+    let target: Point | null = null;
+    const num = (v: string) => (v === '' ? NaN : Number(v));
+    if (raw.startsWith('@')) {
+      const body = raw.slice(1);
+      const base = ref || { x: 0, y: 0 };
+      if (body.includes('<')) {
+        const [l, a] = body.split('<');
+        const len = num(l);
+        const ang = num(a);
+        if (!isFinite(len) || !isFinite(ang)) return 'صيغة قطبية غير صحيحة. مثال: @3<90';
+        const rad = (ang * Math.PI) / 180;
+        target = { x: base.x + len * ppm * Math.cos(rad), y: base.y + len * ppm * Math.sin(rad) };
+      } else {
+        const [dx, dy] = body.split(',');
+        if (!isFinite(num(dx)) || !isFinite(num(dy))) return 'صيغة نسبية غير صحيحة. مثال: @2,0';
+        target = { x: base.x + num(dx) * ppm, y: base.y + num(dy) * ppm };
+      }
+    } else if (raw.includes(',')) {
+      const [x, y] = raw.split(',');
+      if (!isFinite(num(x)) || !isFinite(num(y))) return 'صيغة الإحداثيات غير صحيحة. مثال: 3,2.5';
+      target = { x: num(x) * ppm, y: num(y) * ppm };
+    } else {
+      const len = num(raw);
+      if (!isFinite(len) || len <= 0) return 'قيمة غير مفهومة';
+      if (!origin) return 'حدد نقطة البداية أولاً أو أدخل إحداثيات x,y';
+      const cursor = this.lastCursorWorld || this.currentSnapResult.point;
+      let dir = { x: cursor.x - origin.x, y: cursor.y - origin.y };
+      const polar = SnapEngine.getPolarAngleSnap(origin, cursor, [0, 45, 90, 135, 180, 225, 270, 315, 360], this.isShiftKeyPressed ? 25 : 5.0);
+      if (polar.isSnapped) dir = { x: polar.point.x - origin.x, y: polar.point.y - origin.y };
+      const d = Math.hypot(dir.x, dir.y);
+      const ux = d > 0.001 ? dir.x / d : 1;
+      const uy = d > 0.001 ? dir.y / d : 0;
+      target = { x: origin.x + ux * len * ppm, y: origin.y + uy * len * ppm };
+    }
+    // تقريب لإزالة ضجيج الفاصلة العائمة (مثل 39.99999 ← 40)
+    target = { x: Math.round(target.x * 1e6) / 1e6, y: Math.round(target.y * 1e6) / 1e6 };
+    this.forcedInputPoint = target;
+    try {
+      this.stage.fire('mousedown', { evt: { button: 0, shiftKey: false } } as unknown as Konva.KonvaEventObject<MouseEvent>);
+    } finally {
+      this.forcedInputPoint = null;
+    }
+    this.lastInputPoint = target;
+    this.currentSnapResult = { point: target, snapped: true, type: 'input', label: 'إدخال رقمي' };
+    this.renderInteractionLayer();
+    return null;
   }
 
   public selectObject(id: string | null, updateMulti: boolean = true): void {
@@ -792,6 +929,7 @@ export class CadEngine {
   }
 
   public cancelDrawing(): void {
+    this.trackPoints = [];
     this.isDrawingWall = false;
     this.wallStartPoint = null;
     this.callbacks.onWallDrawingStateChange?.({

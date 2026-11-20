@@ -515,6 +515,8 @@ export class ProjectModel {
    */
   public moveObjects(ids: string[], delta: Point, recordHistory: boolean = true): void {
     if (!ids || ids.length === 0 || (delta.x === 0 && delta.y === 0)) return;
+    // تقريب لإزالة ضجيج الفاصلة العائمة الناتج عن تحويل الشاشة/الزوم (39.99999999 ← 40)
+    const r6 = (v: number) => Math.round(v * 1e6) / 1e6;
     const commands: UpdateObjectCommand[] = [];
 
     ids.forEach((id) => {
@@ -528,37 +530,37 @@ export class ProjectModel {
         const wall = obj as WallObject;
         (beforeState as any)['start'] = { ...wall.start };
         (beforeState as any)['end'] = { ...wall.end };
-        wall.start = { x: wall.start.x + delta.x, y: wall.start.y + delta.y };
-        wall.end = { x: wall.end.x + delta.x, y: wall.end.y + delta.y };
+        wall.start = { x: r6(wall.start.x + delta.x), y: r6(wall.start.y + delta.y) };
+        wall.end = { x: r6(wall.end.x + delta.x), y: r6(wall.end.y + delta.y) };
         (afterState as any)['start'] = { ...wall.start };
         (afterState as any)['end'] = { ...wall.end };
       } else if (obj.type === 'symbol') {
         const sym = obj as SymbolObject;
         (beforeState as any)['x'] = sym.x;
         (beforeState as any)['y'] = sym.y;
-        sym.x += delta.x;
-        sym.y += delta.y;
+        sym.x = r6(sym.x + delta.x);
+        sym.y = r6(sym.y + delta.y);
         (afterState as any)['x'] = sym.x;
         (afterState as any)['y'] = sym.y;
       } else if (obj.type === 'dimension') {
         const dim = obj as DimensionObject;
         (beforeState as any)['start'] = { ...dim.start };
         (beforeState as any)['end'] = { ...dim.end };
-        dim.start = { x: dim.start.x + delta.x, y: dim.start.y + delta.y };
-        dim.end = { x: dim.end.x + delta.x, y: dim.end.y + delta.y };
+        dim.start = { x: r6(dim.start.x + delta.x), y: r6(dim.start.y + delta.y) };
+        dim.end = { x: r6(dim.end.x + delta.x), y: r6(dim.end.y + delta.y) };
         (afterState as any)['start'] = { ...dim.start };
         (afterState as any)['end'] = { ...dim.end };
       } else if (obj.type === 'route') {
         const route = obj as RouteObject;
         (beforeState as any)['points'] = route.points.map((p) => ({ ...p }));
-        route.points = route.points.map((p) => ({ x: p.x + delta.x, y: p.y + delta.y }));
+        route.points = route.points.map((p) => ({ x: r6(p.x + delta.x), y: r6(p.y + delta.y) }));
         (afterState as any)['points'] = route.points.map((p) => ({ ...p }));
       } else if (obj.type === 'text') {
         const txt = obj as TextObject;
         (beforeState as any)['x'] = txt.x;
         (beforeState as any)['y'] = txt.y;
-        txt.x += delta.x;
-        txt.y += delta.y;
+        txt.x = r6(txt.x + delta.x);
+        txt.y = r6(txt.y + delta.y);
         (afterState as any)['x'] = txt.x;
         (afterState as any)['y'] = txt.y;
       } else if (obj.type === 'door' || obj.type === 'window') {

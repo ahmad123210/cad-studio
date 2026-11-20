@@ -46,6 +46,15 @@ import {
 import type { CadEngine, ToolMode, SketchUpCalibrationEvent, WallDrawingState, EngineCallbacks } from '../renderer.ts';
 import { BoxRect, isObjectInBox, pointInBox, segmentIntersectsBox } from '../geometry/selectionBox.ts';
 
+/** مضلع الجدار الموصول يتحول مؤقتاً لخط سميك أثناء معاينة السحب (يُعاد بناؤه عند الإفلات) */
+function prepareWallLineForDrag(line: Konva.Line): void {
+  if (line.name() !== 'wall-poly' || !line.closed()) return;
+  line.closed(false);
+  line.fillEnabled(false);
+  line.strokeWidth(line.getAttr('fullWidth') || 2);
+  line.lineCap('square');
+}
+
 export function renderWallHandlesImpl(this: CadEngine, wall: WallObject): void {
     const sScreen = this.camera.worldToScreen(wall.start);
     const eScreen = this.camera.worldToScreen(wall.end);
@@ -146,6 +155,7 @@ export function renderWallHandlesImpl(this: CadEngine, wall: WallObject): void {
         const lines = wallGroup.find('Line');
         const liveEnd = this.camera.worldToScreen(wall.end);
         lines.forEach((line) => {
+          prepareWallLineForDrag(line as Konva.Line);
           (line as Konva.Line).points([handleStart.x(), handleStart.y(), liveEnd.x, liveEnd.y]);
         });
       }
@@ -278,6 +288,7 @@ export function renderWallHandlesImpl(this: CadEngine, wall: WallObject): void {
         const lines = wallGroup.find('Line');
         const liveStart = this.camera.worldToScreen(wall.start);
         lines.forEach((line) => {
+          prepareWallLineForDrag(line as Konva.Line);
           (line as Konva.Line).points([liveStart.x, liveStart.y, handleEnd.x(), handleEnd.y()]);
         });
       }

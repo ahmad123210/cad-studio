@@ -46,9 +46,18 @@ import {
 import type { CadEngine, ToolMode, SketchUpCalibrationEvent, WallDrawingState, EngineCallbacks } from '../renderer.ts';
 import { BoxRect, isObjectInBox, pointInBox, segmentIntersectsBox } from '../geometry/selectionBox.ts';
 
+/** الأدوات التي تقبل إدخال أرقام/إحداثيات من لوحة المفاتيح */
+const POINT_INPUT_TOOLS: ToolMode[] = ['wall', 'dimension', 'measure', 'route', 'area', 'symbol', 'door', 'window', 'text', 'calibrate'];
+
 export function handleKeyDownImpl(this: CadEngine, e: KeyboardEvent): void {
     if (e.key === 'Shift') {
       this.isShiftKeyPressed = true;
+    }
+    // F8 (التعامد) يعمل حتى أثناء الكتابة في شريط الأوامر، كما في AutoCAD
+    if (e.code === 'F8') {
+      e.preventDefault();
+      this.toggleOrthoMode();
+      return;
     }
     // حماية حقول الإدخال النصية والتسميات التوضيحية
     const activeTag = document.activeElement?.tagName.toLowerCase();
@@ -69,6 +78,16 @@ export function handleKeyDownImpl(this: CadEngine, e: KeyboardEvent): void {
     const key = e.key.toLowerCase();
     const isCtrlOrMeta = e.ctrlKey || e.metaKey;
     const hasModifier = isCtrlOrMeta || e.altKey;
+
+    // أثناء أدوات الرسم تُستخدم الأرقام لإدخال الأطوال والإحداثيات في شريط الأوامر،
+    // فلا تُفسَّر كاختصارات تبديل الأدوات (كان الضغط على 5 أثناء كتابة طول الجدار يحوّل لأداة الباب)
+    if (
+      !hasModifier &&
+      POINT_INPUT_TOOLS.includes(this.toolMode) &&
+      (/^(Digit\d|Numpad\d|Period|NumpadDecimal|Minus|NumpadSubtract)$/.test(code) || key === '@')
+    ) {
+      return;
+    }
 
     if (code === 'Space' && !this.isSpacePressed) {
       this.isSpacePressed = true;

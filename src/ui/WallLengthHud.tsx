@@ -12,6 +12,8 @@ interface WallLengthHudProps {
   currentAngleDegrees: number;
   onCommitLength: (meters: number) => void;
   onCancel: () => void;
+  /** إدخال نقطة بصيغة إحداثيات: @dx,dy أو @طول<زاوية أو x,y (يعيد رسالة خطأ أو null) */
+  onCommitPointText?: (text: string) => string | null;
 }
 
 export const WallLengthHud: React.FC<WallLengthHudProps> = ({
@@ -19,8 +21,10 @@ export const WallLengthHud: React.FC<WallLengthHudProps> = ({
   currentAngleDegrees,
   onCommitLength,
   onCancel,
+  onCommitPointText,
 }) => {
   const [inputValue, setInputValue] = useState<string>('');
+  const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // تحديث القيمة الافتراضية إذا لم يقم المستخدم بالكتابة بعد
@@ -34,7 +38,7 @@ export const WallLengthHud: React.FC<WallLengthHudProps> = ({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // إذا كان المفتاح رقمي أو نقطة ولم يكن الحقل مفعلاً، قم بتركيزه
-      if (/^[0-9.]$/.test(e.key) && document.activeElement !== inputRef.current) {
+      if (/^[0-9.@]$/.test(e.key) && document.activeElement !== inputRef.current) {
         inputRef.current?.focus();
       }
     };
@@ -44,6 +48,17 @@ export const WallLengthHud: React.FC<WallLengthHudProps> = ({
 
   const handleSubmit = (e?: React.FormEvent) => {
     e?.preventDefault();
+    // صيغ الإحداثيات (@ نسبي/قطبي أو x,y مطلق) تُمرَّر لمحرك الإدخال الرقمي
+    if (onCommitPointText && /[@,،<]/.test(inputValue)) {
+      const err = onCommitPointText(inputValue);
+      setError(err);
+      if (!err) {
+        setInputValue('');
+        inputRef.current?.blur();
+      }
+      return;
+    }
+    setError(null);
     const val = parseFloat(inputValue);
     if (!isNaN(val) && val > 0) {
       onCommitLength(val);
@@ -72,22 +87,33 @@ export const WallLengthHud: React.FC<WallLengthHudProps> = ({
       </div>
 
       {/* نموذج كتابة الطول يدوياً بالمتر */}
-      <form onSubmit={handleSubmit} className="flex items-center gap-2">
+      {/* لا تركيز تلقائي: الأرقام تنقل التركيز للحقل تلقائياً، وتبقى Esc والاختصارات تعمل على اللوحة */}
+      <form
+        onSubmit={handleSubmit}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            setInputValue('');
+            inputRef.current?.blur();
+            onCancel();
+          }
+        }}
+        className="flex items-center gap-2"
+      >
         <label className="text-xs text-neutral-300 font-semibold whitespace-nowrap">
           تحديد الطول يدوياً:
         </label>
         <div className="relative flex items-center">
           <input
             ref={inputRef}
-            type="number"
-            step="0.05"
-            min="0.1"
-            max="1000"
+            type="text"
+            inputMode="decimal"
+            dir="ltr"
+            title="طول بالمتر (مثل 3.5) أو @dx,dy أو @طول<زاوية أو x,y"
             placeholder={currentLengthMeters > 0 ? currentLengthMeters.toFixed(2) : 'الطول بالمتر'}
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             className="w-28 bg-neutral-950 border border-neutral-700 focus:border-sky-400 rounded-xl px-2.5 py-1.5 text-sm font-mono-cad text-white outline-none font-bold text-center pl-7"
-            autoFocus
           />
           <span className="absolute left-2.5 text-xs text-neutral-400 font-medium pointer-events-none">
             م
@@ -112,6 +138,7 @@ export const WallLengthHud: React.FC<WallLengthHudProps> = ({
           <X size={14} />
         </button>
       </form>
+      {error && <span className="text-[11px] text-rose-400 font-medium max-w-48">{error}</span>}
     </div>
   );
 };

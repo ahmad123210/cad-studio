@@ -21,6 +21,9 @@ interface StatusBarProps {
   gridDensity?: GridDensity;
   onChangeGridDensity?: (density: GridDensity) => void;
   onOpenHelp: () => void;
+  /** وضع التعامد (F8) */
+  orthoMode?: boolean;
+  onToggleOrtho?: () => void;
 }
 
 export const StatusBar: React.FC<StatusBarProps> = ({
@@ -33,6 +36,8 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   gridDensity = 'medium',
   onChangeGridDensity,
   onOpenHelp,
+  orthoMode = false,
+  onToggleOrtho,
 }) => {
   const [isGridMenuOpen, setIsGridMenuOpen] = useState(false);
   const gridMenuRef = useRef<HTMLDivElement>(null);
@@ -141,6 +146,20 @@ export const StatusBar: React.FC<StatusBarProps> = ({
           </div>
         )}
       </div>
+
+      {onToggleOrtho && (
+        <button
+          onClick={onToggleOrtho}
+          className={`px-1.5 py-0.5 rounded border font-mono-cad text-[10.5px] font-bold transition-colors cursor-pointer ${
+            orthoMode
+              ? 'bg-emerald-950/70 border-emerald-500/60 text-emerald-300'
+              : 'border-neutral-700 text-neutral-500 hover:text-neutral-300'
+          }`}
+          title="وضع التعامد Ortho: تقييد الرسم على 0°/90° (F8)"
+        >
+          ORTHO
+        </button>
+      )}
 
       {/* القسم الأوسط: نصائح الاختصارات السريعة */}
       <div className="hidden md:flex items-center gap-2.5 text-neutral-400">
