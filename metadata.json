@@ -1,0 +1,6 @@
+{
+  "name": "مخططاتي - أداة رسم المخططات الهندسية",
+  "description": "أداة هندسية ويب تفاعلية لرسم وتعديل المخططات التنفيذية، رسم الجدران بدقة، شبكة هندسية ونظام التقاط، وتصدير وحفظ المشاريع.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

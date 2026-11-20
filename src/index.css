@@ -1,0 +1,86 @@
+@import "tailwindcss";
+
+:root {
+  /* الوضع الافتراضي: الداكن المريح (رمادي غامق #1e1e1e وليس أسود خالص) */
+  --cad-canvas-bg: #1e1e1e;
+  --cad-panel-bg: #252528;
+  --cad-panel-header: #1d1d20;
+  --cad-surface-hover: #2e2e33;
+  --cad-surface-active: #3a3a42;
+  --cad-border: #38383e;
+  --cad-border-subtle: #2d2d32;
+  --cad-text-primary: #f3f4f6;
+  --cad-text-secondary: #a1a1aa;
+  --cad-text-muted: #71717a;
+  --cad-scrollbar-track: #1e1e1e;
+  --cad-scrollbar-thumb: #3f3f46;
+  --cad-scrollbar-hover: #52525b;
+  --cad-input-bg: #18181b;
+  --cad-badge-bg: #27272a;
+}
+
+[data-theme="light"], .theme-light {
+  /* الوضع النهاري المريح (درجة فاتحة مريحة #f7f7f7 وليس أبيض ساطع صارخ) */
+  --cad-canvas-bg: #f7f7f7;
+  --cad-panel-bg: #ffffff;
+  --cad-panel-header: #efefef;
+  --cad-surface-hover: #e5e7eb;
+  --cad-surface-active: #d1d5db;
+  --cad-border: #d4d4d8;
+  --cad-border-subtle: #e4e4e7;
+  --cad-text-primary: #18181b;
+  --cad-text-secondary: #52525b;
+  --cad-text-muted: #71717a;
+  --cad-scrollbar-track: #f4f4f5;
+  --cad-scrollbar-thumb: #cbd5e1;
+  --cad-scrollbar-hover: #94a3b8;
+  --cad-input-bg: #f4f4f5;
+  --cad-badge-bg: #e4e4e7;
+}
+
+[data-theme="dark"], .theme-dark {
+  --cad-canvas-bg: #1e1e1e;
+  --cad-panel-bg: #252528;
+  --cad-panel-header: #1d1d20;
+  --cad-surface-hover: #2e2e33;
+  --cad-surface-active: #3a3a42;
+  --cad-border: #38383e;
+  --cad-border-subtle: #2d2d32;
+  --cad-text-primary: #f3f4f6;
+  --cad-text-secondary: #a1a1aa;
+  --cad-text-muted: #71717a;
+  --cad-scrollbar-track: #1e1e1e;
+  --cad-scrollbar-thumb: #3f3f46;
+  --cad-scrollbar-hover: #52525b;
+  --cad-input-bg: #18181b;
+  --cad-badge-bg: #27272a;
+}
+
+@layer base {
+  body {
+    font-family: 'Cairo', system-ui, -apple-system, sans-serif;
+    background-color: var(--cad-canvas-bg);
+    color: var(--cad-text-primary);
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+  
+  .font-mono-cad {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+  }
+}
+
+/* Custom scrollbars for CAD panels using CSS Variables */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--cad-scrollbar-track);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--cad-scrollbar-thumb);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--cad-scrollbar-hover);
+}
