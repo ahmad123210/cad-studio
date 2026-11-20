@@ -46,6 +46,7 @@ import {
 import type { CadEngine, ToolMode, SketchUpCalibrationEvent, WallDrawingState, EngineCallbacks } from '../renderer.ts';
 import { BoxRect, isObjectInBox, pointInBox, segmentIntersectsBox } from '../geometry/selectionBox.ts';
 import { buildEndpointIndex, computeWallPolygon } from '../geometry/wallJoins.ts';
+import { renderBatchedImpl, countVisibleUpTo, BATCH_RENDER_THRESHOLD, BatchInput } from './batchLayer.ts';
 
 export function renderObjectsLayerImpl(this: CadEngine): void {
     // أي إعادة بناء حقيقية تُنهي وضع اللقطة المؤقتة وتعيد الطبقة لتحويل الهوية
@@ -101,6 +102,68 @@ export function renderObjectsLayerImpl(this: CadEngine): void {
     }
     const wallEndpointIndex = buildEndpointIndex(visibleWalls);
 
+    // ─── الرسم المجمّع للمخططات الضخمة: عند تجاوز عدد العناصر المرئية للحد ───
+    const quickInView = (o: ProjectObject): boolean => {
+      const lyr = layerById.get(o.layerId);
+      if (lyr && !lyr.visible) return false;
+      switch (o.type) {
+        case 'wall':
+          return wallInView(o as WallObject);
+        case 'door':
+        case 'window': {
+          const host = wallById.get((o as DoorObject).wallId);
+          return host ? wallInView(host) : false;
+        }
+        case 'dimension': {
+          const d = o as DimensionObject;
+          return inView(Math.min(d.start.x, d.end.x), Math.min(d.start.y, d.end.y), Math.max(d.start.x, d.end.x), Math.max(d.start.y, d.end.y));
+        }
+        case 'symbol':
+        case 'text': {
+          const t = o as SymbolObject;
+          return inView(t.x - 100, t.y - 100, t.x + 100, t.y + 100);
+        }
+        case 'route': {
+          const pts = (o as RouteObject).points;
+          return pts.some((p) => inView(p.x, p.y, p.x, p.y));
+        }
+      }
+      return false;
+    };
+    const batchMode =
+      cullEnabled && countVisibleUpTo(objects, quickInView, BATCH_RENDER_THRESHOLD) >= BATCH_RENDER_THRESHOLD;
+    if (batchMode) {
+      const sel = (id: string) => this.isObjectSelected(id);
+      const input: BatchInput = {
+        walls: [], doors: [], windows: [], dimensions: [], symbols: [], routes: [], texts: [],
+        layerById, wallEndpointIndex,
+      };
+      for (const o of objects) {
+        if (sel(o.id) || !quickInView(o)) continue;
+        switch (o.type) {
+          case 'wall': input.walls.push(o as WallObject); break;
+          case 'door': {
+            const w = wallById.get((o as DoorObject).wallId);
+            if (w && !sel(w.id)) input.doors.push({ door: o as DoorObject, wall: w });
+            break;
+          }
+          case 'window': {
+            const w = wallById.get((o as WindowObject).wallId);
+            if (w && !sel(w.id)) input.windows.push({ win: o as WindowObject, wall: w });
+            break;
+          }
+          case 'dimension': input.dimensions.push(o as DimensionObject); break;
+          case 'symbol': input.symbols.push(o as SymbolObject); break;
+          case 'route': input.routes.push(o as RouteObject); break;
+          case 'text': input.texts.push(o as TextObject); break;
+        }
+      }
+      renderBatchedImpl.call(this, input);
+    }
+    /** في الوضع المجمّع تُرسم كعُقد كاملة فقط العناصر المحددة (أو فتحات الجدار المحدد) */
+    const skipForBatch = (id: string, hostId?: string): boolean =>
+      batchMode && !this.isObjectSelected(id) && !(hostId !== undefined && this.isObjectSelected(hostId));
+
     // 1. رسم الجدران
     for (const obj of objects) {
       if (obj.type !== 'wall') continue;
@@ -110,6 +173,7 @@ export function renderObjectsLayerImpl(this: CadEngine): void {
 
       const isSelected = this.isObjectSelected(wall.id);
       if (!isSelected && !wallInView(wall)) continue;
+      if (skipForBatch(wall.id)) continue;
       const isLocked = layer?.locked ?? false;
 
       const sScreen = this.camera.worldToScreen(wall.start);
@@ -389,6 +453,7 @@ export function renderObjectsLayerImpl(this: CadEngine): void {
       const wall = wallById.get(door.wallId);
       if (!wall) continue;
       if (!wallInView(wall) && !this.isObjectSelected(door.id) && !this.isObjectSelected(wall.id)) continue;
+      if (skipForBatch(door.id, wall.id)) continue;
 
       this.renderDoor(door, wall, layer?.locked ?? false);
     }
@@ -403,6 +468,7 @@ export function renderObjectsLayerImpl(this: CadEngine): void {
       const wall = wallById.get(win.wallId);
       if (!wall) continue;
       if (!wallInView(wall) && !this.isObjectSelected(win.id) && !this.isObjectSelected(wall.id)) continue;
+      if (skipForBatch(win.id, wall.id)) continue;
 
       this.renderWindow(win, wall, layer?.locked ?? false);
     }
@@ -413,6 +479,7 @@ export function renderObjectsLayerImpl(this: CadEngine): void {
       const dim = obj as DimensionObject;
       const layer = layerById.get(dim.layerId);
       if (layer && !layer.visible) continue;
+      if (skipForBatch(dim.id)) continue;
       if (!this.isObjectSelected(dim.id)) {
         const pad = Math.abs(dim.offset || 25) + 60 / zoom;
         if (!inView(
@@ -430,6 +497,7 @@ export function renderObjectsLayerImpl(this: CadEngine): void {
       const sym = obj as SymbolObject;
       const layer = layerById.get(sym.layerId);
       if (layer && !layer.visible) continue;
+      if (skipForBatch(sym.id)) continue;
       if (!this.isObjectSelected(sym.id)) {
         const def = getSymbolById(sym.symbolKind);
         const r = (Math.max(def?.defaultWidth || 40, def?.defaultHeight || 40, 40) * (sym.scale || 1)) + 60 / zoom;
@@ -465,6 +533,7 @@ export function renderObjectsLayerImpl(this: CadEngine): void {
       const route = obj as RouteObject;
       const layer = layerById.get(route.layerId);
       if (layer && !layer.visible) continue;
+      if (skipForBatch(route.id)) continue;
       if (!this.isObjectSelected(route.id) && route.points.length > 0) {
         let rMinX = Infinity, rMinY = Infinity, rMaxX = -Infinity, rMaxY = -Infinity;
         for (const p of route.points) {
@@ -489,6 +558,7 @@ export function renderObjectsLayerImpl(this: CadEngine): void {
       const textObj = obj as TextObject;
       const layer = layerById.get(textObj.layerId);
       if (layer && !layer.visible) continue;
+      if (skipForBatch(textObj.id)) continue;
       if (!this.isObjectSelected(textObj.id)) {
         // تقدير متحفظ لأبعاد بطاقة النص (لا يتطلب قياس الخط)
         const lines = (textObj.text || '').split('\n');
@@ -523,4 +593,6 @@ export function renderObjectsLayerImpl(this: CadEngine): void {
     this.objectsLayer.batchDraw();
     this.lastObjectsRenderMs = performance.now() - renderStart;
     this.lastRenderedGroupCount = this.objectsLayer.getChildren().length;
+    // الوضع المجمّع يمثّل آلاف العناصر بعقدة واحدة: نعامله كمشهد ثقيل لتفعيل الإيماءات السريعة
+    if (batchMode) this.lastRenderedGroupCount += BATCH_RENDER_THRESHOLD;
   }

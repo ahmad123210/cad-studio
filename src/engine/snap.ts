@@ -90,6 +90,16 @@ export class SnapEngine {
   public static orthoMode: boolean = false;
 
   /**
+   * مزوّد تضييق اختياري (يضبطه المحرك): يعيد العناصر القريبة من نقطة ضمن نصف قطر
+   * من فهرس مكاني بدلاً من فحص كل عناصر المخطط. يُستخدم فقط مع المخططات الكبيرة.
+   */
+  public static narrowProvider: ((all: ProjectObject[], p: Point, radius: number) => ProjectObject[]) | null = null;
+
+  private static narrow(all: ProjectObject[], p: Point, radius: number): ProjectObject[] {
+    return this.narrowProvider ? this.narrowProvider(all, p, radius) : all;
+  }
+
+  /**
    * حساب المسافة الإقليدية بين نقطتين
    */
   public static distance(p1: Point, p2: Point): number {
@@ -133,6 +143,7 @@ export class SnapEngine {
   ): WallSnapResult | null {
     let bestResult: WallSnapResult | null = null;
     let minDistance = maxDistance;
+    allObjects = this.narrow(allObjects, cursorPos, Math.max(maxDistance, 200));
 
     for (const obj of allObjects) {
       if (obj.type !== 'wall') continue;
@@ -186,6 +197,7 @@ export class SnapEngine {
   ): SymbolWallSnapResult | null {
     let bestResult: SymbolWallSnapResult | null = null;
     let minDistance = maxDistance;
+    allObjects = this.narrow(allObjects, cursorPos, Math.max(maxDistance, 200));
 
     for (const obj of allObjects) {
       if (obj.type !== 'wall') continue;
@@ -258,6 +270,7 @@ export class SnapEngine {
   ): SymbolSnapResult | null {
     let closest: SymbolSnapResult | null = null;
     let minDistance = maxDistance;
+    allObjects = this.narrow(allObjects, cursorPos, maxDistance);
 
     for (const obj of allObjects) {
       if (obj.type !== 'symbol') continue;
@@ -309,6 +322,7 @@ export class SnapEngine {
     ignoreObjectId?: string
   ): SnapResult {
     const { enableGridSnap, enableObjectSnap, gridSize, snapRadius } = options;
+    allObjects = this.narrow(allObjects, cursorPos, Math.max(snapRadius * 3, 200));
 
     if (enableObjectSnap) {
       // 1. فحص الرموز الهندسية أولاً (Symbol Snap)
