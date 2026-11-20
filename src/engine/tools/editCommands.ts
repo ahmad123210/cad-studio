@@ -19,9 +19,10 @@ import {
   withHostedObjects,
   offsetWall,
 } from '../../model/transforms.ts';
+import { planTrim, planExtend } from '../../model/trimExtend.ts';
 import type { CadEngine } from '../renderer.ts';
 
-export type EditCommandKind = 'move' | 'copy' | 'rotate' | 'scale' | 'mirror' | 'array' | 'offset';
+export type EditCommandKind = 'move' | 'copy' | 'rotate' | 'scale' | 'mirror' | 'array' | 'offset' | 'trim' | 'extend' | 'arraypolar';
 
 export interface EditCommandState {
   kind: EditCommandKind;
@@ -41,14 +42,20 @@ export const EDIT_COMMAND_NAMES: Record<EditCommandKind, string> = {
   mirror: 'مرآة',
   array: 'مصفوفة',
   offset: 'إزاحة متوازية',
+  trim: 'قص',
+  extend: 'تمديد',
+  arraypolar: 'مصفوفة دائرية',
 };
+
+/** أوامر لا تحتاج تحديداً مسبقاً (تعمل بالنقر على العنصر مباشرة) */
+const PICK_COMMANDS: EditCommandKind[] = ['trim', 'extend'];
 
 const POLAR = [0, 45, 90, 135, 180, 225, 270, 315, 360];
 
 /** بدء أمر تحرير على التحديد الحالي. يعيد رسالة خطأ أو null */
 export function startEditCommandImpl(this: CadEngine, kind: EditCommandKind): string | null {
   const ids = this.selectedObjectIds.length > 0 ? [...this.selectedObjectIds] : this.selectedObjectId ? [this.selectedObjectId] : [];
-  if (ids.length === 0) return 'حدد عنصراً أو أكثر أولاً ثم اختر الأمر';
+  if (ids.length === 0 && !PICK_COMMANDS.includes(kind)) return 'حدد عنصراً أو أكثر أولاً ثم اختر الأمر';
   if (kind === 'offset') {
     const walls = ids.filter((id) => this.model.getObjectById(id)?.type === 'wall');
     if (walls.length === 0) return 'الإزاحة المتوازية تعمل على الجدران: حدد جداراً';
@@ -68,6 +75,7 @@ export function isEditAwaitingValueImpl(this: CadEngine): boolean {
   if (!c) return false;
   if (c.kind === 'array') return true;
   if (c.kind === 'offset') return c.step === 0;
+  if (c.kind === 'arraypolar') return c.step === 1;
   if ((c.kind === 'rotate' || c.kind === 'scale') && c.step === 1) return true;
   return false;
 }
@@ -91,6 +99,12 @@ export function getEditPromptImpl(this: CadEngine): string {
       return `مصفوفة ${n}: صفوف,أعمدة,تباعد الصفوف,تباعد الأعمدة (بالمتر) مثل 2,3,4,5`;
     case 'offset':
       return c.step === 0 ? 'اكتب مسافة الإزاحة بالمتر' : 'انقر في الجهة المطلوبة للجدار الجديد';
+    case 'trim':
+      return 'انقر على الجزء المراد قصه (بين تقاطعين) — يتكرر حتى Esc';
+    case 'extend':
+      return 'انقر قرب طرف الجدار/الخط لتمديده حتى أقرب حد — يتكرر حتى Esc';
+    case 'arraypolar':
+      return c.step === 0 ? `مصفوفة دائرية ${n}: حدد المركز` : 'العدد,الزاوية الكلية — مثل 6,360 أو 4,90';
   }
 }
 
@@ -151,11 +165,34 @@ function applySpec(engine: CadEngine, c: EditCommandState, spec: TransformSpec):
   }
 }
 
-/** معالجة نقرة (أو نقطة مُدخلة) أثناء أمر التحرير */
-export function handleEditClickImpl(this: CadEngine, point: Point, objectSnapped: boolean, shift: boolean): void {
+/** معالجة نقرة (أو نقطة مُدخلة) أثناء أمر التحرير. rawPoint: موضع النقرة دون التقاط (للقص والتمديد) */
+export function handleEditClickImpl(this: CadEngine, point: Point, objectSnapped: boolean, shift: boolean, rawPoint?: Point): void {
   const c = this.editCmd;
   if (!c) return;
   if (c.kind === 'array') return; // ينتظر قيماً رقمية
+  if (c.kind === 'trim' || c.kind === 'extend') {
+    const zf = Math.max(1, 1 / (this.camera.getState().zoom || 1));
+    const at = rawPoint || point;
+    const plan = c.kind === 'trim' ? planTrim(this.model.getObjects(), at, 12 * zf) : planExtend(this.model.getObjects(), at, 12 * zf);
+    if (typeof plan === 'string') {
+      this.editMessage = plan;
+    } else {
+      this.editMessage = null;
+      this.model.applyEdits(plan, EDIT_COMMAND_NAMES[c.kind]);
+    }
+    // تحديث شريط الأوامر برسالة الحالة (عبر مخزن القيم اللحظية)
+    this.callbacks.onCursorMove(this.currentSnapResult.point, this.currentSnapResult);
+    this.render();
+    return; // الأمر يبقى نشطاً لعدة نقرات
+  }
+  if (c.kind === 'arraypolar') {
+    if (c.step === 0) {
+      c.base = { ...point };
+      c.step = 1;
+      this.renderInteractionLayer(shift);
+    }
+    return;
+  }
   if (c.kind === 'offset') {
     if (c.step !== 1 || !c.offsetDistance) return;
     const walls = c.ids
@@ -220,6 +257,22 @@ export function applyEditValueImpl(this: CadEngine, text: string): string | null
     finish(this);
     return null;
   }
+  if (c.kind === 'arraypolar' && c.step === 1 && c.base) {
+    const count = Math.round(nums[0]);
+    const total = nums.length > 1 ? nums[1] : 360;
+    if (!Number.isInteger(count) || count < 2 || !isFinite(total) || total === 0) return 'الصيغة: العدد,الزاوية الكلية — مثل 6,360';
+    if (count > 360) return 'الحد الأقصى 360 نسخة';
+    // دائرة كاملة: توزيع متساوٍ دون تكرار الأصل؛ قوس جزئي: الأولى والأخيرة على طرفي القوس
+    const step = Math.abs(total) >= 360 ? total / count : total / (count - 1);
+    const all = this.model.getObjects();
+    const ids = withHostedObjects(c.ids, all);
+    const src = all.filter((o) => ids.includes(o.id));
+    const clones: ProjectObject[] = [];
+    for (let k = 1; k < count; k++) clones.push(...cloneTransformed(src, rotateSpec(c.base, step * k)));
+    this.model.addObjects(clones, `مصفوفة دائرية ${count}`);
+    finish(this);
+    return null;
+  }
   if (c.kind === 'offset' && c.step === 0) {
     const d = nums[0];
     if (!isFinite(d) || d <= 0 || nums.length !== 1) return 'اكتب مسافة موجبة بالمتر مثل 0.2';
@@ -250,6 +303,16 @@ export function renderEditPreviewImpl(this: CadEngine, shift: boolean): void {
   const toS = (p: Point) => this.camera.worldToScreen(p);
 
   let spec: TransformSpec | null = null;
+  if (c.kind === 'trim' || c.kind === 'extend') return;
+  if (c.kind === 'arraypolar') {
+    if (c.base) {
+      const a = toS(c.base);
+      layer.add(new Konva.Circle({ x: a.x, y: a.y, radius: 5, fill: '#f59e0b', listening: false }));
+      const b = toS(cursor);
+      layer.add(new Konva.Circle({ x: a.x, y: a.y, radius: Math.hypot(b.x - a.x, b.y - a.y), stroke: '#a78bfa', dash: [6, 5], strokeWidth: 1, listening: false }));
+    }
+    return;
+  }
   if (c.kind === 'offset') {
     if (c.step === 1 && c.offsetDistance) {
       for (const id of c.ids) {
