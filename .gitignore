@@ -1,8 +1,37 @@
+# ── الاعتماديات ──
 node_modules/
+
+# ── مخرجات البناء ──
 build/
 dist/
+dist-electron/
+release/
+server.js
+*.tsbuildinfo
 coverage/
-.DS_Store
-*.log
+
+# ── Android / Capacitor (عند إضافتها لاحقاً) ──
+android/app/build/
+android/.gradle/
+android/build/
+android/local.properties
+android/app/release/
+*.keystore
+*.jks
+
+# ── الأسرار والإعدادات المحلية (لا ترفع مفاتيح Gemini أبداً) ──
 .env*
 !.env.example
+
+# ── ملفات النظام والمحررات ──
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+
+# ── السجلات ──
+*.log
+npm-debug.log*

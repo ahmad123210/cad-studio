@@ -329,6 +329,8 @@ export class ExportEngine {
       visibleLayerIds: options.visibleLayerIds,
       boundsMode: 'drawing',
       padding: 40,
+      // إصلاح: على "ورق أبيض" كانت الجدران تُرسم بلون الواجهة الداكنة (أبيض تقريباً) فتختفي في الطباعة
+      theme: options.theme === 'white' ? 'light' : 'dark',
     });
 
     const img = await this.loadImage(drawingDataUrl);

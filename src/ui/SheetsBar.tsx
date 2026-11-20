@@ -25,7 +25,7 @@ export const SheetsBar: React.FC<SheetsBarProps> = ({
   activeSheetId,
   onSheetChange,
 }) => {
-  const [sheets, setSheets] = useState<ProjectSheet[]>(() => model.getSheets());
+  const [sheets, setSheets] = useState<ProjectSheet[]>(() => model.getSheetSummaries());
   const [editingSheetId, setEditingSheetId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
   const [contextMenuSheetId, setContextMenuSheetId] = useState<string | null>(null);
@@ -37,7 +37,7 @@ export const SheetsBar: React.FC<SheetsBarProps> = ({
   // تحديث قائمة اللوحات عند حدوث أي تغيير في الموديل
   useEffect(() => {
     const update = () => {
-      setSheets(model.getSheets());
+      setSheets(model.getSheetSummaries());
     };
     return model.subscribe(update);
   }, [model]);
@@ -70,7 +70,7 @@ export const SheetsBar: React.FC<SheetsBarProps> = ({
   const handleSaveRename = () => {
     if (editingSheetId && editingName.trim()) {
       model.renameSheet(editingSheetId, editingName.trim());
-      setSheets(model.getSheets());
+      setSheets(model.getSheetSummaries());
     }
     setEditingSheetId(null);
   };
@@ -85,7 +85,7 @@ export const SheetsBar: React.FC<SheetsBarProps> = ({
 
   const handleAddSheet = () => {
     const newId = model.addSheet();
-    setSheets(model.getSheets());
+    setSheets(model.getSheetSummaries());
     onSheetChange(newId);
     // تمرير شريط التمرير إلى النهاية
     setTimeout(() => {
@@ -100,7 +100,7 @@ export const SheetsBar: React.FC<SheetsBarProps> = ({
     setContextMenuSheetId(null);
     const newId = model.duplicateSheet(sheetId);
     if (newId) {
-      setSheets(model.getSheets());
+      setSheets(model.getSheetSummaries());
       onSheetChange(newId);
     }
   };
@@ -112,7 +112,7 @@ export const SheetsBar: React.FC<SheetsBarProps> = ({
     if (window.confirm('هل أنت متأكد من حذف هذه اللوحة وجميع عناصرها؟')) {
       const success = model.deleteSheet(sheetId);
       if (success) {
-        setSheets(model.getSheets());
+        setSheets(model.getSheetSummaries());
         onSheetChange(model.getActiveSheetId());
       }
     }

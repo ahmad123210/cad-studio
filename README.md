@@ -1,20 +1,93 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# مخططاتي — CAD Studio
 
-# Run and deploy your AI Studio app
+منصة رسم هندسي ثنائي الأبعاد (2D CAD) للمخططات المعمارية والكهروميكانيكية (MEP) تعمل في المتصفح وكتطبيق سطح مكتب (Electron)، بواجهة عربية كاملة (RTL).
 
-This contains everything you need to run your app locally.
+> Professional Architectural & MEP 2D CAD — React + TypeScript + Konva.
 
-View your app in AI Studio: https://ai.studio/apps/d1626517-7902-4a4f-b5d8-a1ac7a2c325e
+---
 
-## Run Locally
+## الميزات
 
-**Prerequisites:**  Node.js
+- **رسم معماري:** جدران بسماكات قابلة للضبط، أبواب ونوافذ مرتبطة بالجدران، أبعاد (Dimensions)، ملاحظات نصية.
+- **أنظمة MEP:** مكتبة رموز (كهرباء، سباكة، تكييف، إطفاء حريق، فرش وأجهزة) + رموز مخصصة، ومسارات كابلات/مواسير/دكت مع حساب الأطوال.
+- **الدقة:** التقاط (نهايات، منتصف، على الجدار، رموز، شبكة)، قفل زوايا قطبي 45°/90° (Shift)، إدخال طول الجدار رقمياً، معايرة المقياس على طريقة SketchUp.
+- **القياس:** شريط قياس، مساحة ومحيط مضلع (Shoelace).
+- **الإدارة:** طبقات (إظهار/قفل/شفافية/لون)، لوحات متعددة (Sheets)، تراجع وإعادة (Command Pattern)، تحديد مفرد/مربع/متعدد، نسخ/قص/لصق/تكرار، تحريك بالأسهم.
+- **الاستيراد والتصدير:** JSON للمشروع، DXF (AutoCAD)، PNG / PDF، جدول كميات BOQ.
+- **مساعد هندسي ذكي** (اختياري) عبر Gemini API من جهة الخادم.
+- **أداء المخططات الكبيرة:** تكبير/تحريك بلقطة نقطية مؤقتة + اقتطاع نطاق الرؤية (Culling) + مستويات تفاصيل (LOD).
+- **اللمس:** تكبير بالقرص وتحريك بإصبعين (Pinch / Two‑finger pan).
 
+## البيئة المطلوبة
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+| المكوّن | الإصدار |
+| --- | --- |
+| Node.js | 22 أو أحدث (يُنصح بـ 22 LTS) |
+| npm | 10+ |
+| (اختياري) مفتاح Gemini API | للمساعد الذكي فقط |
+
+التقنيات: React 19 · TypeScript · Vite · Tailwind CSS 4 · Konva · jsPDF · Express (خادم التطوير/الإنتاج) · Electron (سطح المكتب).
+
+## التشغيل محلياً
+
+```bash
+npm install
+cp .env.example .env.local      # ثم ضع GEMINI_API_KEY إن أردت المساعد الذكي
+npm run dev                     # خادم Express + Vite على http://localhost:3000
+```
+
+بدون خادم (واجهة فقط، المساعد الذكي يعمل بوضع احتياطي):
+
+```bash
+npx vite            # تطوير
+npm run build       # بناء إلى dist/
+npm run preview     # معاينة البناء
+```
+
+## تطبيق سطح المكتب (Windows)
+
+```bash
+npm run electron:dev        # تشغيل Electron محلياً
+npm run build:win:portable  # ملف exe محمول
+npm run build:win           # مثبّت NSIS + محمول
+```
+
+التفاصيل في [`ELECTRON_GUIDE.md`](ELECTRON_GUIDE.md).
+
+## الاختصارات الأساسية
+
+| المفتاح | الوظيفة |
+| --- | --- |
+| `V` / `1` | تحديد (تكرار V يبدّل: مفرد ← مربع ← متعدد) |
+| `W` | جدار · `D` باب · `N` نافذة · `M` بُعد · `8` قياس · `A` مساحة · `R` مسار · `S` رمز · `T` نص · `H` تحريك |
+| `Shift` | قفل الزاوية أثناء الرسم / إضافة للتحديد |
+| `Space` + سحب، أو الزر الأوسط | تحريك اللوحة |
+| عجلة الفأرة | تكبير حول المؤشر |
+| `Ctrl+Z` / `Ctrl+Y` | تراجع / إعادة |
+| `Ctrl+C` `Ctrl+X` `Ctrl+V` `Ctrl+D` | نسخ / قص / لصق / تكرار |
+| `Ctrl+A` · `Delete` · الأسهم | تحديد الكل · حذف · إزاحة (مع Shift خطوة أكبر) |
+| `Ctrl+S` · `Ctrl+Shift+S` · `Ctrl+O` | حفظ · حفظ باسم · فتح |
+| `Ctrl+E` / `Ctrl+P` · `Ctrl+B` · `Ctrl+L` · `Ctrl+K` | تصدير · جدول الكميات · الطبقات · مكتبة الرموز |
+| `Esc` | إلغاء الرسم الحالي |
+
+## بنية المشروع
+
+```
+src/
+  App.tsx              ربط الواجهة بالمحرك والنموذج
+  engine/              المحرك: renderer (Konva)، camera، snap، grid، dxf، export، aiInspector، liveStatus
+  model/               نموذج البيانات: project، history (Undo/Redo)، types، lastUsedSettings
+  symbols/             مكتبات الرموز حسب التخصص + الرموز المخصصة
+  ui/                  مكونات الواجهة (أشرطة، لوحات، نوافذ منبثقة)
+electron/              العملية الرئيسية و preload لتطبيق سطح المكتب
+server.ts              خادم Express (Vite middleware + مسار /api/ai-assistant)
+```
+
+## ملاحظات
+
+- الحفظ في المتصفح يتم في `localStorage` (حد ~5MB). المشاريع ذات صورة خلفية كبيرة احفظها كملف عبر «حفظ باسم».
+- لا ترفع ملف `.env.local` إلى المستودع؛ هو مستبعد في `.gitignore`.
+
+## الترخيص
+
+Apache-2.0 (حسب ترويسة الملفات المصدرية). المؤلف: Ahmad Khaled Natour.

@@ -408,7 +408,17 @@ export class ProjectModel {
    */
   public deleteObjects(ids: string[]): void {
     if (!ids || ids.length === 0) return;
-    const toDelete = this.objects.filter((o) => ids.includes(o.id));
+    // Set بدلاً من includes داخل filter (كان O(n×m) عند حذف آلاف العناصر)
+    const idSet = new Set(ids);
+    // إصلاح: حذف الجدران جماعياً كان يترك أبواباً ونوافذ "يتيمة" مرتبطة بجدار غير موجود
+    // (لا تُرسم لكنها تبقى في البيانات وتُحسب في جدول الكميات BOQ). نحذفها معها كما يفعل deleteObject.
+    for (const o of this.objects) {
+      if ((o.type === 'door' || o.type === 'window') && idSet.has((o as DoorObject | WindowObject).wallId)) {
+        const host = this.objects.find((w) => w.id === (o as DoorObject | WindowObject).wallId);
+        if (host && host.type === 'wall') idSet.add(o.id);
+      }
+    }
+    const toDelete = this.objects.filter((o) => idSet.has(o.id));
     if (toDelete.length === 0) return;
 
     this.history.push({
@@ -422,7 +432,26 @@ export class ProjectModel {
       description: `حذف ${toDelete.length} عناصر محددة`,
     });
 
-    this.objects = this.objects.filter((o) => !ids.includes(o.id));
+    this.objects = this.objects.filter((o) => !idSet.has(o.id));
+    this.notify();
+  }
+
+  /**
+   * إضافة مجموعة عناصر دفعة واحدة كخطوة تراجع واحدة وإشعار واحد (للصق والتكرار)
+   */
+  public addObjects(objs: ProjectObject[], description?: string): void {
+    if (!objs || objs.length === 0) return;
+    this.objects.push(...objs);
+    this.history.push({
+      type: 'batch',
+      commands: objs.map((obj) => ({
+        type: 'add' as const,
+        object: JSON.parse(JSON.stringify(obj)),
+        timestamp: Date.now(),
+      })),
+      timestamp: Date.now(),
+      description: description || `إضافة ${objs.length} عناصر`,
+    });
     this.notify();
   }
 
@@ -828,7 +857,7 @@ export class ProjectModel {
       throw new Error('صيغة مشروع غير صالحة');
     }
     this.meta = { ...data.project };
-    this.layers = data.layers || JSON.parse(JSON.stringify(DEFAULT_LAYERS));
+    this.layers = JSON.parse(JSON.stringify(data.layers || DEFAULT_LAYERS));
     this.backgroundImage = data.backgroundImage || null;
     this.activeLayerId = this.layers[0]?.id || 'arch';
     this.history.clear();
@@ -861,10 +890,20 @@ export class ProjectModel {
     this.notify();
   }
 
-  public saveToLocalStorage(): void {
-    const data = this.toJSON();
-    localStorage.setItem(STORAGE_PREFIX + this.projectId, JSON.stringify(data));
-    localStorage.setItem(CURRENT_PROJECT_KEY, this.projectId);
+  /**
+   * الحفظ في ذاكرة المتصفح. يُرجع false إذا فشل (غالباً تجاوز حد ~5MB بسبب صورة الخلفية).
+   * سابقاً كان الخطأ QuotaExceededError يُرمى دون معالجة فيظهر المشروع "محفوظاً" وهو غير محفوظ.
+   */
+  public saveToLocalStorage(): boolean {
+    try {
+      const data = this.toJSON();
+      localStorage.setItem(STORAGE_PREFIX + this.projectId, JSON.stringify(data));
+      localStorage.setItem(CURRENT_PROJECT_KEY, this.projectId);
+      return true;
+    } catch (err) {
+      console.error('saveToLocalStorage failed (storage quota?):', err);
+      return false;
+    }
   }
 
   public loadFromLocalStorage(id?: string): boolean {
@@ -907,12 +946,43 @@ export class ProjectModel {
 
   public subscribe(listener: ModelChangeListener): () => void {
     this.listeners.add(listener);
-    listener(this.toJSON());
+    listener(this.getLiveSnapshot());
     return () => this.listeners.delete(listener);
   }
 
+  /**
+   * لقطة خفيفة للقراءة فقط تُمرَّر للمستمعين عند كل تغيير.
+   * سابقاً كان notify() يستدعي toJSON() الذي ينسخ كل العناصر وكل اللوحات وصورة الخلفية (Base64 قد تبلغ عدة MB)
+   * عبر JSON.parse(JSON.stringify) — مرتين أو ثلاثاً — مع كل تعديل صغير، وهو أكبر عنق زجاجة في المخططات الكبيرة.
+   * لا يوجد مستمع حالي يعدّل البيانات المستلمة، لذا تمرير المراجع آمن. للحفظ/التصدير استخدم toJSON().
+   */
+  public getLiveSnapshot(): ProjectData {
+    return {
+      project: this.meta,
+      layers: this.layers,
+      objects: this.objects,
+      backgroundImage: this.backgroundImage,
+      sheets: this.sheets,
+      activeSheetId: this.activeSheetId,
+    };
+  }
+
+  /**
+   * ملخص اللوحات دون نسخ عناصرها (لشريط اللوحات). الحقول objects فارغة عمداً.
+   */
+  public getSheetSummaries(): import('./types.ts').ProjectSheet[] {
+    return this.sheets.map((s) => ({
+      id: s.id,
+      name: s.name,
+      objects: [],
+      backgroundImage: null,
+      scale: s.scale,
+      createdAt: s.createdAt,
+    }));
+  }
+
   private notify(): void {
-    const data = this.toJSON();
+    const data = this.getLiveSnapshot();
     this.listeners.forEach((listener) => listener(data));
   }
 }

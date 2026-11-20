@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useReducer } from 'react';
 import { ProjectModel } from './model/project.ts';
 import { CadEngine, ToolMode } from './engine/renderer.ts';
 import {
@@ -48,6 +48,70 @@ import { SheetsBar } from './ui/SheetsBar.tsx';
 import { WallLengthHud } from './ui/WallLengthHud.tsx';
 import { GridDensity, ThemeMode, getLastUsedSettings, updateLastUsedSettings } from './model/lastUsedSettings.ts';
 import { PanelRightOpen } from 'lucide-react';
+import { liveStatus, useLiveStatus } from './engine/liveStatus.ts';
+
+/**
+ * شريط الحالة المتصل مباشرة بالقيم عالية التردد (المؤشر/الالتقاط/الزوم)
+ * حتى لا تُعاد تصيير واجهة التطبيق كاملة مع كل حركة فأرة.
+ */
+function LiveStatusBar(props: Omit<React.ComponentProps<typeof StatusBar>, 'cursorWorld' | 'snapResult' | 'zoom'>) {
+  const live = useLiveStatus();
+  return <StatusBar {...props} cursorWorld={live.cursorWorld} snapResult={live.snapResult} zoom={live.zoom} />;
+}
+
+/** شريط إدخال طول الجدار متصل مباشرة بالطول/الزاوية اللحظيين */
+function LiveWallLengthHud(props: Omit<React.ComponentProps<typeof WallLengthHud>, 'currentLengthMeters' | 'currentAngleDegrees'>) {
+  const { wallDrawing } = useLiveStatus();
+  if (!wallDrawing?.isDrawing) return null;
+  return (
+    <WallLengthHud
+      {...props}
+      currentLengthMeters={wallDrawing.currentLengthMeters}
+      currentAngleDegrees={wallDrawing.currentAngleDegrees}
+    />
+  );
+}
+
+/** توليد معرف عنصر جديد */
+function newObjectId(type: string): string {
+  return `${type}_${Math.random().toString(36).substring(2, 9)}`;
+}
+
+/**
+ * نسخ مجموعة عناصر مع إزاحة، وإعادة ربط الأبواب/النوافذ بنسخ جدرانها إن نُسخت معها.
+ * (إصلاح: سابقاً كان الباب المنسوخ يبقى مرتبطاً بالجدار الأصلي فيظهر فوق الباب الأصلي تماماً)
+ */
+function cloneObjectsWithOffset(source: ProjectObject[], offset: number): ProjectObject[] {
+  const idMap = new Map<string, string>();
+  const clones = source.map((orig) => {
+    const clone = JSON.parse(JSON.stringify(orig));
+    clone.id = newObjectId(clone.type);
+    idMap.set(orig.id, clone.id);
+    if (clone.type === 'wall' || clone.type === 'dimension') {
+      clone.start.x += offset;
+      clone.start.y += offset;
+      clone.end.x += offset;
+      clone.end.y += offset;
+    } else if (clone.type === 'symbol' || clone.type === 'text') {
+      clone.x += offset;
+      clone.y += offset;
+    } else if (clone.type === 'route') {
+      clone.points = clone.points.map((p: Point) => ({ x: p.x + offset, y: p.y + offset }));
+    }
+    return clone as ProjectObject;
+  });
+  for (const c of clones) {
+    if (c.type === 'door' || c.type === 'window') {
+      const mapped = idMap.get((c as DoorObject | WindowObject).wallId);
+      if (mapped) (c as DoorObject | WindowObject).wallId = mapped;
+    }
+    if (c.type === 'symbol' && (c as SymbolObject).wallId) {
+      const mapped = idMap.get((c as SymbolObject).wallId!);
+      if (mapped) (c as SymbolObject).wallId = mapped;
+    }
+  }
+  return clones;
+}
 
 /**
  * عناصر نموذجية أولية للمشروع (غرفة سكنية 6م × 4م مع باب ونافذة وخط بُعد هندسي)
@@ -297,7 +361,8 @@ export default function App() {
   const [model] = useState<ProjectModel>(() => {
     const proj = new ProjectModel('proj_default', 'مخطط فيلا سكنية 01');
     const loaded = proj.loadFromLocalStorage();
-    if (!loaded || proj.getObjects().length === 0) {
+    // إصلاح: سابقاً كانت العناصر النموذجية تُعاد إضافتها لأي مشروع محفوظ فارغ (بعد تفريغ اللوحة ثم إعادة التحميل)
+    if (!loaded) {
       const samples = createSampleElements('arch');
       samples.forEach((obj) => proj.addObject(obj, false));
     }
@@ -313,20 +378,14 @@ export default function App() {
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   const [isSaved, setIsSaved] = useState(true);
-  const [isPropertiesPanelVisible, setIsPropertiesPanelVisible] = useState(true);
+  // الشاشات الضيقة (هاتف/جهاز لوحي عمودي): نبدأ بلوحة الخصائص مخفية لإفساح مساحة الرسم
+  const [isPropertiesPanelVisible, setIsPropertiesPanelVisible] = useState(
+    () => typeof window === 'undefined' || window.innerWidth >= 900
+  );
 
-  // إحداثيات المؤشر وحالة الكاميرا للشريط السفلي
-  const [cursorWorld, setCursorWorld] = useState<Point>({ x: 0, y: 0 });
-  const [snapResult, setSnapResult] = useState<SnapResult>({
-    point: { x: 0, y: 0 },
-    snapped: false,
-    type: 'none',
-  });
-  const [cameraState, setCameraState] = useState<CameraState>({
-    zoom: 1.0,
-    offsetX: 0,
-    offsetY: 0,
-  });
+  // إحداثيات المؤشر وحالة الكاميرا للشريط السفلي: انتقلت إلى مخزن liveStatus (انظر LiveStatusBar)
+  // لإعادة تصيير الواجهة عند تغيّر حالة داخلية في المحرك لا تمر عبر React (مثل خيارات الالتقاط)
+  const [, forceRender] = useReducer((x: number) => x + 1, 0);
 
   // النوافذ المنبثقة
   const [isLayersOpen, setIsLayersOpen] = useState(false);
@@ -350,7 +409,8 @@ export default function App() {
   const [theme, setTheme] = useState<ThemeMode>(() => getLastUsedSettings().themeMode || 'dark');
   const [showWallLengths, setShowWallLengths] = useState<boolean>(() => getLastUsedSettings().showWallLengths !== false);
   const [activeSheetId, setActiveSheetId] = useState<string>(() => model.getActiveSheetId());
-  const [wallDrawingState, setWallDrawingState] = useState<WallDrawingState | null>(null);
+  // نُبقي في React فقط "هل يجري رسم جدار" (يتغير نادراً)، أما الطول والزاوية اللحظيان ففي liveStatus
+  const [isDrawingWallUi, setIsDrawingWallUi] = useState<boolean>(false);
   const [contextMenu, setContextMenu] = useState<{
     position: { x: number; y: number } | null;
     targetObjectId: string | null;
@@ -453,22 +513,21 @@ export default function App() {
       onSelectObject: (id) => {
         setSelectedObjectId(id);
         setSelectedObjectIds(id ? [id] : []);
-        if (id) {
+        if (id && window.innerWidth >= 900) {
           setIsPropertiesPanelVisible(true);
         }
       },
       onSelectObjects: (ids) => {
         setSelectedObjectIds(ids);
         setSelectedObjectId(ids.length > 0 ? ids[0] : null);
-        if (ids && ids.length > 0) {
+        if (ids && ids.length > 0 && window.innerWidth >= 900) {
           setIsPropertiesPanelVisible(true);
         }
       },
       onCursorMove: (worldPt, snap) => {
-        setCursorWorld(worldPt);
-        setSnapResult(snap);
+        liveStatus.setCursor(worldPt, snap);
       },
-      onCameraChange: (cam) => setCameraState(cam),
+      onCameraChange: (cam: CameraState) => liveStatus.setZoom(cam.zoom),
       onCalibrationRequest: (_p1, _p2, dist) => {
         setMeasuredPixelDistance(dist);
       },
@@ -482,7 +541,8 @@ export default function App() {
         setRouteData({ pointsCount, pixelLength, kind });
       },
       onWallDrawingStateChange: (state) => {
-        setWallDrawingState(state);
+        liveStatus.setWallDrawing(state);
+        setIsDrawingWallUi(Boolean(state?.isDrawing));
       },
       onContextMenu: (e) => {
         setContextMenu({
@@ -500,10 +560,17 @@ export default function App() {
 
     engineRef.current = engine;
 
+    // subscribe() يستدعي المستمع فوراً مرة أولى: لا نعتبرها تعديلاً (كان المشروع يظهر "غير محفوظ" فور فتحه)
+    let isInitialNotify = true;
     const unsubscribeModel = model.subscribe((data) => {
       setProjectData(data);
+      if (isInitialNotify) {
+        isInitialNotify = false;
+        return;
+      }
       setIsSaved(false);
-      engine.render();
+      // رسم مجمّع: عدة تغييرات في نفس الإطار = إعادة رسم واحدة
+      engine.requestRender();
     });
 
     const unsubscribeHistory = model.getHistory().subscribe((undoable, redoable) => {
@@ -556,6 +623,7 @@ export default function App() {
     if (!engineRef.current) return;
     const current = engineRef.current.getSnapOptions();
     engineRef.current.setSnapOptions({ enableGridSnap: !current.enableGridSnap });
+    forceRender();
   };
 
   // تبديل التقاط نهايات الجدران
@@ -563,6 +631,7 @@ export default function App() {
     if (!engineRef.current) return;
     const current = engineRef.current.getSnapOptions();
     engineRef.current.setSnapOptions({ enableObjectSnap: !current.enableObjectSnap });
+    forceRender();
   };
 
   // معالجات قائمة الخيارات السياقية (الزر الأيمن)
@@ -593,24 +662,10 @@ export default function App() {
 
   const handleContextMenuPaste = useCallback(() => {
     if (clipboardObjects.length > 0) {
-      const newIds: string[] = [];
-      clipboardObjects.forEach((orig) => {
-        const clone = JSON.parse(JSON.stringify(orig));
-        clone.id = `${clone.type}_${Math.random().toString(36).substring(2, 9)}`;
-        if (clone.type === 'wall' || clone.type === 'dimension') {
-          clone.start.x += 30;
-          clone.start.y += 30;
-          clone.end.x += 30;
-          clone.end.y += 30;
-        } else if (clone.type === 'symbol' || clone.type === 'text') {
-          clone.x += 30;
-          clone.y += 30;
-        } else if (clone.type === 'route') {
-          clone.points = clone.points.map((p: Point) => ({ x: p.x + 30, y: p.y + 30 }));
-        }
-        model.addObject(clone);
-        newIds.push(clone.id);
-      });
+      // لصق كخطوة تراجع واحدة (سابقاً: خطوة لكل عنصر)
+      const clones = cloneObjectsWithOffset(clipboardObjects, 30);
+      model.addObjects(clones, `لصق ${clones.length} عناصر`);
+      const newIds = clones.map((c) => c.id);
       setSelectedObjectIds(newIds);
       setSelectedObjectId(newIds[0] || null);
       engineRef.current?.selectObjects(newIds);
@@ -623,27 +678,12 @@ export default function App() {
     const targets = selectedObjectIds.length > 0
       ? selectedObjectIds
       : (contextMenu.targetObjectId ? [contextMenu.targetObjectId] : []);
-    const newIds: string[] = [];
-    targets.forEach((id) => {
-      const orig = model.getObjectById(id);
-      if (orig) {
-        const clone = JSON.parse(JSON.stringify(orig));
-        clone.id = `${clone.type}_${Math.random().toString(36).substring(2, 9)}`;
-        if (clone.type === 'wall' || clone.type === 'dimension') {
-          clone.start.x += 25;
-          clone.start.y += 25;
-          clone.end.x += 25;
-          clone.end.y += 25;
-        } else if (clone.type === 'symbol' || clone.type === 'text') {
-          clone.x += 25;
-          clone.y += 25;
-        } else if (clone.type === 'route') {
-          clone.points = clone.points.map((p: Point) => ({ x: p.x + 25, y: p.y + 25 }));
-        }
-        model.addObject(clone);
-        newIds.push(clone.id);
-      }
-    });
+    const originals = targets
+      .map((id) => model.getObjectById(id))
+      .filter((o): o is ProjectObject => Boolean(o));
+    const clones = cloneObjectsWithOffset(originals, 25);
+    model.addObjects(clones, `تكرار ${clones.length} عناصر`);
+    const newIds = clones.map((c) => c.id);
     if (newIds.length > 0) {
       setSelectedObjectIds(newIds);
       setSelectedObjectId(newIds[0]);
@@ -760,8 +800,12 @@ export default function App() {
       // إذا لم يكن هناك مسار سابق، نفتح نافذة حفظ ويندوز الحقيقية مباشرة
       await handleSaveAs();
     } else {
-      model.saveToLocalStorage();
-      setIsSaved(true);
+      const ok = model.saveToLocalStorage();
+      if (ok) {
+        setIsSaved(true);
+      } else {
+        alert('تعذّر الحفظ في ذاكرة المتصفح (غالباً بسبب حجم صورة الخلفية). استخدم "حفظ باسم" لتنزيل ملف المشروع.');
+      }
     }
   }, [model, lastSavedPath, handleSaveAs]);
 
@@ -783,10 +827,11 @@ export default function App() {
             model.saveToLocalStorage();
           }
         } else {
-          // حفظ دوري احتياطي في الذاكرة المحلية
-          model.saveToLocalStorage();
-          setIsSaved(true);
-          window.electronAPI?.setUnsavedChanges(false);
+          // حفظ دوري احتياطي في الذاكرة المحلية (لا نعلن الحفظ إن فشل بسبب امتلاء الذاكرة)
+          if (model.saveToLocalStorage()) {
+            setIsSaved(true);
+            window.electronAPI?.setUnsavedChanges(false);
+          }
         }
       } catch (err) {
         console.warn('Auto-save tick failed:', err);
@@ -902,9 +947,11 @@ export default function App() {
       message: 'هل أنت متأكد من حذف جميع الجدران والأبواب والنوافذ من اللوحة؟',
       variant: 'danger',
       action: () => {
-        const objects = model.getObjects();
-        objects.forEach((obj) => model.deleteObject(obj.id));
+        // خطوة تراجع واحدة وإشعار واحد (سابقاً: حذف كل عنصر منفرداً = N إعادة رسم و N خطوة تراجع)
+        model.clearAllObjects(true);
         setSelectedObjectId(null);
+        setSelectedObjectIds([]);
+        engineRef.current?.deselectAll();
       },
     });
   };
@@ -1151,7 +1198,8 @@ export default function App() {
           break;
         case 'delete-selected': {
           const selected = engineRef.current?.getSelectedObjectIds() || [];
-          selected.forEach((id) => model.deleteObject(id));
+          model.deleteObjects(selected);
+          engineRef.current?.deselectAll();
           break;
         }
         case 'zoom-in':
@@ -1290,6 +1338,7 @@ export default function App() {
               activeLineStyle={engineRef.current?.getActiveRouteLineStyle() || 'solid'}
               onSelectLineStyle={(style) => {
                 engineRef.current?.setActiveRouteLineStyle(style);
+                forceRender();
               }}
               pointsCount={routeData.pointsCount}
               currentLengthMeters={
@@ -1337,10 +1386,8 @@ export default function App() {
           )}
 
           {/* شريط تحديد طول الجدار يدوياً بالمتر أثناء الرسم */}
-          {wallDrawingState?.isDrawing && (
-            <WallLengthHud
-              currentLengthMeters={wallDrawingState.currentLengthMeters}
-              currentAngleDegrees={wallDrawingState.currentAngleDegrees}
+          {isDrawingWallUi && (
+            <LiveWallLengthHud
               onCommitLength={(meters) => {
                 engineRef.current?.commitWallWithLength(meters);
               }}
@@ -1389,10 +1436,7 @@ export default function App() {
       />
 
       {/* شريط الحالة السفلي (StatusBar) */}
-      <StatusBar
-        cursorWorld={cursorWorld}
-        snapResult={snapResult}
-        zoom={cameraState.zoom}
+      <LiveStatusBar
         activeLayerName={activeLayer?.name || 'المعماري'}
         pixelsPerMeter={meta.scale || 50}
         unit={meta.unit}

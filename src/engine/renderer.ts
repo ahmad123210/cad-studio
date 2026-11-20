@@ -241,6 +241,7 @@ export class CadEngine {
   // كاش صورة الخلفية لتفادي إعادة التحميل المتكررة
   private bgImageElement: HTMLImageElement | null = null;
   private lastBgDataUrl: string | null = null;
+  private pendingBgDataUrl: string | null = null;
 
   // إظهار أو إخفاء أطوال الجدران
   private showWallLengths: boolean = true;
@@ -253,6 +254,49 @@ export class CadEngine {
   // callbacks للواجهة
   private callbacks: EngineCallbacks;
 
+  // ─── تحسينات الأداء للمخططات الكبيرة (Large Drawings Performance) ───
+  /** طبقة بديلة تعرض لقطة نقطية (Bitmap Snapshot) من طبقة العناصر أثناء التكبير/التحريك */
+  private gestureProxyLayer: Konva.Layer;
+  private gestureProxyImage: Konva.Image | null = null;
+  private gestureSnapshotCanvas: HTMLCanvasElement | null = null;
+  /** حالة الكاميرا التي رُسمت بها طبقة العناصر آخر مرة (أساس حساب التحويل المؤقت) */
+  private objectsRenderedCamera: CameraState | null = null;
+  private bgRenderedCamera: CameraState | null = null;
+  private isGestureActive: boolean = false;
+  private gestureBaseCamera: CameraState | null = null;
+  private gestureFramePending: boolean = false;
+  private gestureEndTimer: ReturnType<typeof setTimeout> | null = null;
+  /** مدة آخر إعادة بناء لطبقة العناصر (ms) لاختيار الوضع السريع تلقائياً */
+  private lastObjectsRenderMs: number = 0;
+  /** عدد مجموعات العناصر المرسومة فعلياً في آخر إعادة بناء (تقدير كلفة الرسم على الكانفس) */
+  private lastRenderedGroupCount: number = 0;
+  private static readonly FAST_GESTURE_GROUP_THRESHOLD = 400;
+  /** عتبة التحول للوضع السريع: إذا تجاوزت إعادة البناء هذه المدة نستخدم اللقطة النقطية */
+  private static readonly FAST_GESTURE_THRESHOLD_MS = 12;
+  private static readonly GESTURE_SETTLE_MS = 140;
+  /** تعطيل الاقتطاع (Culling) أثناء التصدير لضمان رسم كامل المخطط */
+  private disableCulling: boolean = false;
+  /** طلب إعادة رسم مجمّع في الإطار القادم (Coalesced Render) */
+  private renderRequested: boolean = false;
+  /** ذاكرة مؤقتة لمجموعة العناصر المحددة لتسريع isObjectSelected */
+  private selectionCacheSource: string[] | null = null;
+  private selectionCacheSet: Set<string> = new Set();
+  /** إيماءة اللمس بإصبعين (Pinch Zoom / Two-finger Pan) */
+  private pinchState: { dist: number; center: Point } | null = null;
+  /** حالة ما قبل لمسة الإصبع الأول لإلغاء أثرها إن تبيّن أنها بداية إيماءة قرص */
+  private touchStartSnapshot: {
+    time: number;
+    wasDrawingWall: boolean;
+    routeLen: number;
+    areaLen: number;
+    undoCount: number;
+    selectedIds: string[];
+  } | null = null;
+  /** مستمعات النافذة لإزالتها عند التدمير (منع تسرب الذاكرة) */
+  private windowMouseUpHandler: (() => void) | null = null;
+  private containerPointerDownCapture: ((e: Event) => void) | null = null;
+  private containerContextMenuHandler: ((e: MouseEvent) => void) | null = null;
+
   constructor(
     container: HTMLDivElement,
     model: ProjectModel,
@@ -262,6 +306,11 @@ export class CadEngine {
     this.model = model;
     this.callbacks = callbacks;
     this.camera = new Camera(1.0, container.clientWidth / 2, container.clientHeight / 2);
+
+    // تحديد دقة البكسل القصوى (2x) لتخفيف الحمل على شاشات الهواتف والـ 4K دون فقدان وضوح ملحوظ
+    if (typeof window !== 'undefined' && window.devicePixelRatio > 2) {
+      Konva.pixelRatio = 2;
+    }
 
     // تهيئة مسرح Konva
     this.stage = new Konva.Stage({
@@ -274,9 +323,11 @@ export class CadEngine {
     this.gridLayer = new Konva.Layer({ listening: false });
     this.objectsLayer = new Konva.Layer();
     this.interactionLayer = new Konva.Layer({ listening: false });
+    this.gestureProxyLayer = new Konva.Layer({ listening: false, visible: false });
 
     this.stage.add(this.backgroundLayer);
     this.stage.add(this.gridLayer);
+    this.stage.add(this.gestureProxyLayer);
     this.stage.add(this.objectsLayer);
     this.stage.add(this.interactionLayer);
 
@@ -403,10 +454,11 @@ export class CadEngine {
       }
     };
 
-    this.container.addEventListener('contextmenu', (e: MouseEvent) => {
+    this.containerContextMenuHandler = (e: MouseEvent) => {
       e.preventDefault();
       triggerContextMenu(e.clientX, e.clientY);
-    });
+    };
+    this.container.addEventListener('contextmenu', this.containerContextMenuHandler);
 
     this.stage.on('contextmenu', (e) => {
       e.evt.preventDefault();
@@ -557,7 +609,25 @@ export class CadEngine {
   }
 
   public isObjectSelected(id: string): boolean {
-    return this.selectedObjectId === id || this.selectedObjectIds.includes(id);
+    if (this.selectedObjectId === id) return true;
+    // O(1) بدلاً من O(n) — مهم عند تحديد آلاف العناصر (Ctrl+A) ثم إعادة الرسم
+    if (this.selectionCacheSource !== this.selectedObjectIds) {
+      this.selectionCacheSource = this.selectedObjectIds;
+      this.selectionCacheSet = new Set(this.selectedObjectIds);
+    }
+    return this.selectionCacheSet.has(id);
+  }
+
+  /**
+   * خيارات الالتقاط الفعلية: نصف قطر الالتقاط يُحسب بالبكسل على الشاشة (كما في AutoCAD Aperture)
+   * فلا يصبح الالتقاط معدوماً عند التصغير الشديد ولا "لاصقاً" بشكل مزعج عند التكبير الشديد.
+   * عند تكبير 100% تبقى القيم مطابقة تماماً للسلوك السابق.
+   */
+  private getEffectiveSnapOptions(): SnapOptions {
+    const zoom = this.camera.getState().zoom || 1;
+    const base = this.snapOptions.snapRadius;
+    const factor = Math.max(0.25, Math.min(4, 1 / zoom));
+    return { ...this.snapOptions, snapRadius: base * factor };
   }
 
   public selectObject(id: string | null, updateMulti: boolean = true): void {
@@ -983,6 +1053,8 @@ export class CadEngine {
     padding?: number;
     customWidth?: number;
     customHeight?: number;
+    /** سمة ألوان العناصر في الصورة المصدّرة (افتراضياً سمة الواجهة الحالية) */
+    theme?: 'dark' | 'light';
   }): string {
     const opts = {
       pixelRatio: 2.5,
@@ -997,6 +1069,8 @@ export class CadEngine {
     // حفظ الحالة الحالية
     const savedCam = this.camera.getState();
     const savedSelectedId = this.selectedObjectId;
+    const savedSelectedIds = this.selectedObjectIds;
+    const savedTheme = this.theme;
     const savedStageW = this.stage.width();
     const savedStageH = this.stage.height();
     const savedGridVisible = this.gridLayer.visible();
@@ -1007,8 +1081,14 @@ export class CadEngine {
     const originalLayers = this.model.getLayers().map((l) => ({ id: l.id, visible: l.visible }));
 
     try {
+      // التصدير يجب أن يرسم كامل المخطط: نوقف الاقتطاع ووضع اللقطة المؤقتة
+      this.endGesture();
+      this.disableCulling = true;
+      if (opts.theme) this.theme = opts.theme;
       // إزالة التحديد وإخفاء مؤشرات التفاعل اللحظية
+      // (إصلاح: كان التحديد المتعدد يظهر بلون التحديد داخل الصورة/PDF المُصدَّر)
       this.selectedObjectId = null;
+      this.selectedObjectIds = [];
       this.interactionLayer.visible(false);
       this.gridLayer.visible(opts.includeGrid);
       this.backgroundLayer.visible(opts.includeBackground);
@@ -1045,6 +1125,8 @@ export class CadEngine {
 
       return dataUrl;
     } finally {
+      this.disableCulling = false;
+      this.theme = savedTheme;
       // استعادة الحالة بالكامل
       originalLayers.forEach((orig) => {
         const l = this.model.getLayers().find((layer) => layer.id === orig.id);
@@ -1053,6 +1135,7 @@ export class CadEngine {
 
       this.camera.setState(savedCam);
       this.selectedObjectId = savedSelectedId;
+      this.selectedObjectIds = savedSelectedIds;
       this.stage.width(savedStageW);
       this.stage.height(savedStageH);
       this.gridLayer.visible(savedGridVisible);
@@ -1100,13 +1183,49 @@ export class CadEngine {
       const pointer = this.stage.getPointerPosition();
       if (!pointer) return;
 
-      const scaleBy = 1.08;
-      const factor = e.evt.deltaY < 0 ? scaleBy : 1 / scaleBy;
+      // تكبير متناسب مع مقدار العجلة: عجلة الفأرة التقليدية (±100) تعطي نفس الخطوة السابقة 1.08،
+      // بينما لوحات اللمس (Trackpad) ترسل قيماً صغيرة متتابعة فيصبح التكبير ناعماً بدل القفزات.
+      let dy = e.evt.deltaY;
+      if (e.evt.deltaMode === 1) dy *= 33; // وضع الأسطر (Firefox)
+      else if (e.evt.deltaMode === 2) dy *= 800; // وضع الصفحات
+      dy = Math.max(-300, Math.min(300, dy));
+      const sensitivity = e.evt.ctrlKey ? 0.003 : 0.00077; // ctrlKey = إيماءة القرص على لوحة اللمس
+      const factor = Math.exp(-dy * sensitivity);
+      if (!isFinite(factor) || factor === 1) return;
       this.camera.zoomAtScreenPoint(factor, pointer);
       this.onViewTransformChanged();
     });
 
+    // دعم اللمس: منع إيماءات المتصفح الافتراضية (تمرير/تكبير الصفحة) فوق لوحة الرسم
+    this.container.style.touchAction = 'none';
+
+    // قبل أي نقرة بالفأرة أثناء وضع اللقطة المؤقتة: نعيد البناء الدقيق فوراً حتى تصيب النقرة العناصر الحقيقية
+    this.containerPointerDownCapture = (ev: Event) => {
+      const pe = ev as PointerEvent;
+      if (pe.pointerType === 'touch') return; // اللمس: لا نقطع سلسلة إيماءات القرص المتتالية
+      this.flushGesture();
+    };
+    this.container.addEventListener('pointerdown', this.containerPointerDownCapture, true);
+
     this.stage.on('mousedown touchstart', (e) => {
+      // بداية إيماءة القرص/التحريك بإصبعين (Pinch Zoom & Two-Finger Pan)
+      const touches = (e.evt as TouchEvent).touches;
+      if (touches && touches.length >= 2) {
+        this.beginPinch(touches);
+        return;
+      }
+      if (this.pinchState) return;
+      if (touches && touches.length === 1) {
+        this.touchStartSnapshot = {
+          time: Date.now(),
+          wasDrawingWall: this.isDrawingWall,
+          routeLen: this.routePoints.length,
+          areaLen: this.areaPoints.length,
+          undoCount: this.model.getHistory().getPushCount(),
+          selectedIds: this.selectedObjectIds,
+        };
+      }
+
       // التحريك بالزر الأوسط أو بمفتاح المسافة
       if (e.evt.button === 1 || this.isSpacePressed || this.toolMode === 'pan') {
         const pointer = this.stage.getPointerPosition();
@@ -1128,7 +1247,7 @@ export class CadEngine {
       const snap = SnapEngine.findSnapPoint(
         worldRaw,
         this.model.getObjects(),
-        this.snapOptions,
+        this.getEffectiveSnapOptions(),
         this.toolMode === 'select' ? (this.selectedObjectId || undefined) : undefined
       );
       const activeWorldPoint = snap.point;
@@ -1550,6 +1669,16 @@ export class CadEngine {
     });
 
     this.stage.on('mousemove touchmove', (e) => {
+      // إيماءة القرص بإصبعين لها الأولوية على أي أداة
+      const touches = (e.evt as TouchEvent).touches;
+      if (touches && touches.length >= 2) {
+        e.evt.preventDefault();
+        if (!this.pinchState) this.beginPinch(touches);
+        else this.updatePinch(touches);
+        return;
+      }
+      if (this.pinchState) return;
+
       const pointer = this.stage.getPointerPosition();
       if (!pointer) return;
 
@@ -1558,6 +1687,13 @@ export class CadEngine {
         const dy = pointer.y - this.panStartPos.y;
         this.camera.panBy(dx, dy);
         this.panStartPos = { x: pointer.x, y: pointer.y };
+
+        // المخططات الكبيرة: تحريك لقطة نقطية واحدة بدلاً من إعادة رسم آلاف العُقد في كل إطار
+        if (this.shouldUseFastGesture()) {
+          this.beginGesture();
+          this.scheduleGestureFrame();
+          return;
+        }
 
         // تحريك طبقات الكانفس مباشرة بأداء فائق 60/144 FPS دون إعادة بناء شجرة العناصر
         this.backgroundLayer.x(this.backgroundLayer.x() + dx);
@@ -1586,7 +1722,16 @@ export class CadEngine {
       }
     });
 
-    const handleMouseUp = () => {
+    const handleMouseUp = (ev?: Event) => {
+      // نهاية إيماءة القرص: عند بقاء أقل من إصبعين
+      if (this.pinchState) {
+        const remaining = (ev as TouchEvent | undefined)?.touches?.length ?? 0;
+        if (remaining < 2) {
+          this.pinchState = null;
+          this.onViewTransformChanged(true);
+        }
+        return;
+      }
       if (this.isPanning) {
         this.isPanning = false;
         this.updateCursor();
@@ -1603,7 +1748,7 @@ export class CadEngine {
         const pointer = this.stage.getPointerPosition();
         if (pointer) {
           const worldRaw = this.camera.screenToWorld(pointer);
-          const snap = SnapEngine.findSnapPoint(worldRaw, this.model.getObjects(), this.snapOptions);
+          const snap = SnapEngine.findSnapPoint(worldRaw, this.model.getObjects(), this.getEffectiveSnapOptions());
           let endPoint = snap.point;
           const polar = SnapEngine.getPolarAngleSnap(
             this.calibrateStartPoint,
@@ -1657,6 +1802,8 @@ export class CadEngine {
 
     window.addEventListener('mouseup', handleMouseUp);
     window.addEventListener('touchend', handleMouseUp);
+    window.addEventListener('touchcancel', handleMouseUp);
+    this.windowMouseUpHandler = handleMouseUp;
   }
 
   private handleKeyDown = (e: KeyboardEvent): void => {
@@ -1840,7 +1987,7 @@ export class CadEngine {
     this.currentSnapResult = SnapEngine.findSnapPoint(
       worldRaw,
       this.model.getObjects(),
-      this.snapOptions,
+      this.getEffectiveSnapOptions(),
       this.toolMode === 'select' ? (this.selectedObjectId || undefined) : undefined
     );
 
@@ -1906,11 +2053,202 @@ export class CadEngine {
       this.render();
       return;
     }
+    // المخططات الكبيرة: تحويل لقطة نقطية لحظياً ثم إعادة بناء دقيقة بعد توقف الإيماءة
+    if (this.shouldUseFastGesture()) {
+      this.beginGesture();
+      this.scheduleGestureFrame();
+      this.scheduleGestureEnd();
+      return;
+    }
     if (this.isTransformPending) return;
     this.isTransformPending = true;
     requestAnimationFrame(() => {
       this.isTransformPending = false;
       this.callbacks.onCameraChange(this.camera.getState());
+      this.render();
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  //  نظام الإيماءات السريعة (Fast Pan/Zoom) للمخططات الكبيرة
+  //  الفكرة: أثناء التكبير/التحريك لا نعيد بناء آلاف عُقد Konva في كل إطار،
+  //  بل نلتقط طبقة العناصر كصورة نقطية مرة واحدة ونطبّق عليها تحويل الكاميرا
+  //  (scale + translate) وهو عملية رسم صورة واحدة فقط لكل إطار. وعند توقف
+  //  الإيماءة (140ms) نعيد البناء المتجهي الدقيق مع الاقتطاع (Culling).
+  // ═══════════════════════════════════════════════════════════════════════
+
+  // ─── إيماءات اللمس المتعدد (الهواتف والأجهزة اللوحية) ───
+
+  private touchToLocal(t: Touch): Point {
+    const rect = this.container.getBoundingClientRect();
+    return { x: t.clientX - rect.left, y: t.clientY - rect.top };
+  }
+
+  private getPinchMetrics(touches: TouchList): { dist: number; center: Point } {
+    const a = this.touchToLocal(touches[0]);
+    const b = this.touchToLocal(touches[1]);
+    return {
+      dist: Math.max(1, Math.hypot(b.x - a.x, b.y - a.y)),
+      center: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
+    };
+  }
+
+  private beginPinch(touches: TouchList): void {
+    this.pinchState = this.getPinchMetrics(touches);
+    // إلغاء أي تأثير جانبي للإصبع الأول (تحديد مربع، سحب عنصر، أو بدء رسم) إن حدث للتو
+    this.isMarqueeSelecting = false;
+    this.marqueeStartPoint = null;
+    this.isPanning = false;
+    this.stage.find((n: Konva.Node) => n.isDragging()).forEach((n) => n.stopDrag());
+    const snap = this.touchStartSnapshot;
+    if (snap && Date.now() - snap.time < 450) {
+      if (!snap.wasDrawingWall && this.isDrawingWall) this.cancelDrawing();
+      if (this.routePoints.length > snap.routeLen) this.routePoints = this.routePoints.slice(0, snap.routeLen);
+      if (this.areaPoints.length > snap.areaLen) this.areaPoints = this.areaPoints.slice(0, snap.areaLen);
+      if (this.routePoints.length === 0) this.isDrawingRoute = false;
+      // نقرة الإصبع الأول أدرجت عنصراً (رمز/باب/نافذة)؟ نتراجع عنها لأنها كانت بداية قرص
+      if (this.model.getHistory().getPushCount() > snap.undoCount) {
+        this.model.undo();
+        this.deselectAll();
+      } else if (snap.selectedIds !== this.selectedObjectIds) {
+        // الإصبع الأول حدّد عنصراً بالخطأ قبل بدء القرص: نعيد التحديد السابق
+        this.selectObjects(snap.selectedIds);
+      }
+      this.touchStartSnapshot = null;
+    }
+    this.renderInteractionLayer();
+  }
+
+  private updatePinch(touches: TouchList): void {
+    if (!this.pinchState) return;
+    const next = this.getPinchMetrics(touches);
+    const factor = next.dist / this.pinchState.dist;
+    this.camera.panBy(next.center.x - this.pinchState.center.x, next.center.y - this.pinchState.center.y);
+    if (isFinite(factor) && Math.abs(factor - 1) > 0.0005) {
+      this.camera.zoomAtScreenPoint(factor, next.center);
+    }
+    this.pinchState = next;
+    this.onViewTransformChanged();
+  }
+
+  private shouldUseFastGesture(): boolean {
+    if (this.disableCulling) return false;
+    if (Konva.isDragging()) return false;
+    return (
+      this.isGestureActive ||
+      this.lastObjectsRenderMs > CadEngine.FAST_GESTURE_THRESHOLD_MS ||
+      this.lastRenderedGroupCount > CadEngine.FAST_GESTURE_GROUP_THRESHOLD
+    );
+  }
+
+  private beginGesture(): void {
+    if (this.isGestureActive) return;
+    // نضمن أن الطبقة مرسومة فعلياً بآخر حالة قبل التقاطها
+    this.objectsLayer.drawScene();
+    const native = this.objectsLayer.getNativeCanvasElement();
+    if (!native || native.width === 0 || native.height === 0) return;
+
+    const snap = this.gestureSnapshotCanvas || document.createElement('canvas');
+    if (snap.width !== native.width || snap.height !== native.height) {
+      snap.width = native.width;
+      snap.height = native.height;
+    }
+    const ctx = snap.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, snap.width, snap.height);
+    ctx.drawImage(native, 0, 0);
+    this.gestureSnapshotCanvas = snap;
+
+    this.gestureProxyLayer.destroyChildren();
+    this.gestureProxyImage = new Konva.Image({
+      image: snap,
+      x: 0,
+      y: 0,
+      width: this.stage.width(),
+      height: this.stage.height(),
+      listening: false,
+    });
+    this.gestureProxyLayer.add(this.gestureProxyImage);
+    this.gestureBaseCamera = this.objectsRenderedCamera || this.camera.getState();
+    this.gestureProxyLayer.position({ x: 0, y: 0 });
+    this.gestureProxyLayer.scale({ x: 1, y: 1 });
+    this.gestureProxyLayer.visible(true);
+    this.objectsLayer.visible(false);
+    this.isGestureActive = true;
+  }
+
+  /** تطبيق تحويل الكاميرا الحالي على الطبقات المؤقتة (إطار واحد عبر requestAnimationFrame) */
+  private scheduleGestureFrame(): void {
+    if (this.gestureFramePending) return;
+    this.gestureFramePending = true;
+    requestAnimationFrame(() => {
+      this.gestureFramePending = false;
+      this.applyGestureTransforms();
+    });
+  }
+
+  private applyGestureTransforms(): void {
+    const cam = this.camera.getState();
+    const applyRelative = (layer: Konva.Layer, base: CameraState | null) => {
+      if (!base || base.zoom === 0) return;
+      const k = cam.zoom / base.zoom;
+      layer.scale({ x: k, y: k });
+      layer.position({ x: cam.offsetX - base.offsetX * k, y: cam.offsetY - base.offsetY * k });
+    };
+    if (this.isGestureActive) {
+      applyRelative(this.gestureProxyLayer, this.gestureBaseCamera);
+      this.gestureProxyLayer.batchDraw();
+    }
+    applyRelative(this.backgroundLayer, this.bgRenderedCamera);
+    this.backgroundLayer.batchDraw();
+    // الشبكة وطبقة التفاعل خفيفتان: تُرسمان مباشرة بالكاميرا الحالية لدقة تامة
+    this.renderGridLayer();
+    this.renderInteractionLayer(this.isShiftKeyPressed);
+    this.callbacks.onCameraChange(cam);
+  }
+
+  private scheduleGestureEnd(): void {
+    if (this.gestureEndTimer) clearTimeout(this.gestureEndTimer);
+    this.gestureEndTimer = setTimeout(() => {
+      this.gestureEndTimer = null;
+      if (this.isPanning || this.pinchState) return; // ستنتهي عند رفع الإصبع/الزر
+      this.endGesture();
+      this.callbacks.onCameraChange(this.camera.getState());
+      this.render();
+    }, CadEngine.GESTURE_SETTLE_MS);
+  }
+
+  /** إنهاء وضع اللقطة المؤقتة (لا يعيد الرسم بنفسه) */
+  private endGesture(): void {
+    if (this.gestureEndTimer) {
+      clearTimeout(this.gestureEndTimer);
+      this.gestureEndTimer = null;
+    }
+    if (!this.isGestureActive) return;
+    this.isGestureActive = false;
+    this.gestureProxyLayer.visible(false);
+    this.gestureProxyLayer.destroyChildren();
+    this.gestureProxyImage = null;
+    this.objectsLayer.visible(true);
+  }
+
+  /** إنهاء الإيماءة فوراً مع إعادة البناء الدقيق (قبل أي نقر حتى تصيب النقرة العناصر الحقيقية) */
+  private flushGesture(): void {
+    if (!this.isGestureActive && !this.gestureEndTimer) return;
+    this.endGesture();
+    this.callbacks.onCameraChange(this.camera.getState());
+    this.render();
+  }
+
+  /**
+   * طلب إعادة رسم مجمّعة: عدة تغييرات متتالية في النموذج ضمن نفس الإطار
+   * تُنتج إعادة رسم واحدة فقط بدلاً من N مرة (مثل الحذف الجماعي أو اللصق).
+   */
+  public requestRender(): void {
+    if (this.renderRequested) return;
+    this.renderRequested = true;
+    requestAnimationFrame(() => {
+      if (!this.renderRequested) return; // تم الرسم مباشرة في الأثناء
       this.render();
     });
   }
@@ -1941,6 +2279,7 @@ export class CadEngine {
    * إعادة رسم المشهد كاملاً
    */
   public render(): void {
+    this.renderRequested = false;
     this.renderBackgroundLayer();
     this.renderGridLayer();
     this.renderObjectsLayer();
@@ -1952,6 +2291,9 @@ export class CadEngine {
    */
   private renderBackgroundLayer(): void {
     this.backgroundLayer.destroyChildren();
+    this.backgroundLayer.position({ x: 0, y: 0 });
+    this.backgroundLayer.scale({ x: 1, y: 1 });
+    this.bgRenderedCamera = this.camera.getState();
 
     const bg = this.model.getBackgroundImage();
     if (!bg || !bg.visible || !bg.dataUrl) {
@@ -1986,14 +2328,22 @@ export class CadEngine {
 
     if (this.bgImageElement && this.lastBgDataUrl === bg.dataUrl) {
       renderKonvaImage(this.bgImageElement);
-    } else {
+    } else if (this.pendingBgDataUrl !== bg.dataUrl) {
+      // إصلاح: سابقاً كان كل استدعاء render() قبل اكتمال تحميل الصورة يُنشئ تحميلاً جديداً
+      // ثم تُضاف عدة نسخ من الصورة فوق بعضها. الآن تحميل واحد فقط ثم إعادة رسم الطبقة.
+      this.pendingBgDataUrl = bg.dataUrl;
       const img = new Image();
-      img.src = bg.dataUrl;
       img.onload = () => {
+        if (this.pendingBgDataUrl !== bg.dataUrl) return; // تم استبدال الصورة أثناء التحميل
+        this.pendingBgDataUrl = null;
         this.bgImageElement = img;
         this.lastBgDataUrl = bg.dataUrl;
-        renderKonvaImage(img);
+        this.renderBackgroundLayer();
       };
+      img.onerror = () => {
+        if (this.pendingBgDataUrl === bg.dataUrl) this.pendingBgDataUrl = null;
+      };
+      img.src = bg.dataUrl;
     }
   }
 
@@ -2002,6 +2352,8 @@ export class CadEngine {
    */
   private renderGridLayer(): void {
     this.gridLayer.destroyChildren();
+    this.gridLayer.position({ x: 0, y: 0 });
+    this.gridLayer.scale({ x: 1, y: 1 });
 
     const width = this.stage.width();
     const height = this.stage.height();
@@ -2010,12 +2362,17 @@ export class CadEngine {
     const screenGrid = gridSize * zoom;
 
     // تكييف خطوة الرسم بناءً على التكبير لضمان سلاسة الأداء وعدم تداخل الخطوط
-    let step = gridSize;
+    // (مُحسّن: مضاعف صحيح للشبكة دائماً + منع انفجار عدد الخطوط عند التصغير الشديد)
+    let mult = 1;
     if (screenGrid < 6) {
-      step = gridSize * 5;
+      mult = 5;
     } else if (screenGrid < 11) {
-      step = gridSize * 2;
+      mult = 2;
     }
+    while (gridSize > 0 && gridSize * mult * zoom < 6 && mult < 1e6) {
+      mult *= 5;
+    }
+    const step = gridSize * mult;
 
     const bounds = GridUtils.getVisibleGridBounds(this.camera, width, height, step);
     const gridLinesGroup = new Konva.Group();
@@ -2026,45 +2383,50 @@ export class CadEngine {
     const majorColor = isDark ? '#383842' : '#cbd5e1';
     const minorColor = isDark ? '#26262e' : '#e2e8f0';
 
+    // فهارس صحيحة بدلاً من مقارنة باقي القسمة على أعداد عشرية (كانت تفشل مع المقاييس المعايرة غير الصحيحة
+    // مثل 37.43 بكسل/متر فتختفي الخطوط الرئيسية، ويتراكم خطأ الفاصلة العائمة مع y += step)
+    const iStartX = Math.round(bounds.startX / gridSize);
+    const iEndX = Math.round(bounds.endX / gridSize);
+    const iStartY = Math.round(bounds.startY / gridSize);
+    const iEndY = Math.round(bounds.endY / gridSize);
+    const isMajorIdx = (i: number) => i % 4 === 0 || i % 5 === 0;
+    const zoomNow = zoom;
+    const cam = this.camera.getState();
+    const sx = (wx: number) => wx * zoomNow + cam.offsetX;
+    const sy = (wy: number) => wy * zoomNow + cam.offsetY;
+    const left = sx(bounds.startX);
+    const right = sx(bounds.endX);
+    const top = sy(bounds.startY);
+    const bottom = sy(bounds.endY);
+
     const gridShape = new Konva.Shape({
       sceneFunc: (context) => {
+        if (gridSize <= 0) return;
+        const drawLines = (major: boolean) => {
+          context.beginPath();
+          for (let i = iStartY; i <= iEndY; i += mult) {
+            if (i === 0 || isMajorIdx(i) !== major) continue;
+            const y = sy(i * gridSize);
+            context.moveTo(left, y);
+            context.lineTo(right, y);
+          }
+          for (let i = iStartX; i <= iEndX; i += mult) {
+            if (i === 0 || isMajorIdx(i) !== major) continue;
+            const x = sx(i * gridSize);
+            context.moveTo(x, top);
+            context.lineTo(x, bottom);
+          }
+        };
+
         // 1. رسم خطوط الشبكة الفرعية المتقطعة بدفعة واحدة
-        context.beginPath();
-        for (let y = bounds.startY; y <= bounds.endY; y += step) {
-          if (y === 0 || Math.abs(y) % (gridSize * 4) === 0 || Math.abs(y) % (gridSize * 5) === 0) continue;
-          const p1 = this.camera.worldToScreen({ x: bounds.startX, y });
-          const p2 = this.camera.worldToScreen({ x: bounds.endX, y });
-          context.moveTo(p1.x, p1.y);
-          context.lineTo(p2.x, p2.y);
-        }
-        for (let x = bounds.startX; x <= bounds.endX; x += step) {
-          if (x === 0 || Math.abs(x) % (gridSize * 4) === 0 || Math.abs(x) % (gridSize * 5) === 0) continue;
-          const p1 = this.camera.worldToScreen({ x, y: bounds.startY });
-          const p2 = this.camera.worldToScreen({ x, y: bounds.endY });
-          context.moveTo(p1.x, p1.y);
-          context.lineTo(p2.x, p2.y);
-        }
+        drawLines(false);
         context.strokeStyle = minorColor;
         context.lineWidth = 0.6;
         context.setLineDash([2, 4]);
         context.stroke();
 
         // 2. رسم خطوط الشبكة الرئيسية بدفعة واحدة
-        context.beginPath();
-        for (let y = bounds.startY; y <= bounds.endY; y += step) {
-          if (y === 0 || !(Math.abs(y) % (gridSize * 4) === 0 || Math.abs(y) % (gridSize * 5) === 0)) continue;
-          const p1 = this.camera.worldToScreen({ x: bounds.startX, y });
-          const p2 = this.camera.worldToScreen({ x: bounds.endX, y });
-          context.moveTo(p1.x, p1.y);
-          context.lineTo(p2.x, p2.y);
-        }
-        for (let x = bounds.startX; x <= bounds.endX; x += step) {
-          if (x === 0 || !(Math.abs(x) % (gridSize * 4) === 0 || Math.abs(x) % (gridSize * 5) === 0)) continue;
-          const p1 = this.camera.worldToScreen({ x, y: bounds.startY });
-          const p2 = this.camera.worldToScreen({ x, y: bounds.endY });
-          context.moveTo(p1.x, p1.y);
-          context.lineTo(p2.x, p2.y);
-        }
+        drawLines(true);
         context.strokeStyle = majorColor;
         context.lineWidth = 1;
         context.setLineDash([]);
@@ -2111,7 +2473,13 @@ export class CadEngine {
    * رسم العناصر الهندسية (الجدران، الأبواب، النوافذ، الأبعاد)
    */
   public renderObjectsLayer(): void {
+    // أي إعادة بناء حقيقية تُنهي وضع اللقطة المؤقتة وتعيد الطبقة لتحويل الهوية
+    this.endGesture();
+    const renderStart = performance.now();
     this.objectsLayer.destroyChildren();
+    this.objectsLayer.position({ x: 0, y: 0 });
+    this.objectsLayer.scale({ x: 1, y: 1 });
+    this.objectsRenderedCamera = this.camera.getState();
 
     const objects = this.model.getObjects();
     const layers = this.model.getLayers();
@@ -2120,14 +2488,43 @@ export class CadEngine {
     const zoom = this.camera.getState().zoom;
     const isDark = this.theme === 'dark';
 
+    // ─── فهارس سريعة O(1) بدلاً من find() داخل الحلقات ───
+    const layerById = new Map(layers.map((l) => [l.id, l]));
+    const wallById = new Map<string, WallObject>();
+    for (const o of objects) {
+      if (o.type === 'wall') wallById.set(o.id, o as WallObject);
+    }
+    // مشهد ثقيل: نتخلى عن المؤثرات المكلفة (الظلال) للحفاظ على السلاسة
+    const heavyScene = objects.length > 800 && !this.disableCulling; // التصدير بجودة كاملة دائماً
+
+    // ─── الاقتطاع حسب نطاق الرؤية (Viewport Culling) مع هامش نصف شاشة ───
+    const vw = this.stage.width();
+    const vh = this.stage.height();
+    const marginPx = Math.max(vw, vh) * 0.5;
+    const viewTL = this.camera.screenToWorld({ x: -marginPx, y: -marginPx });
+    const viewBR = this.camera.screenToWorld({ x: vw + marginPx, y: vh + marginPx });
+    const cullEnabled = !this.disableCulling;
+    const inView = (minX: number, minY: number, maxX: number, maxY: number): boolean =>
+      !cullEnabled || !(maxX < viewTL.x || minX > viewBR.x || maxY < viewTL.y || minY > viewBR.y);
+    const wallInView = (w: WallObject): boolean => {
+      const pad = (w.thickness || 20) / 2 + 40 / zoom;
+      return inView(
+        Math.min(w.start.x, w.end.x) - pad,
+        Math.min(w.start.y, w.end.y) - pad,
+        Math.max(w.start.x, w.end.x) + pad,
+        Math.max(w.start.y, w.end.y) + pad
+      );
+    };
+
     // 1. رسم الجدران
     for (const obj of objects) {
       if (obj.type !== 'wall') continue;
       const wall = obj as WallObject;
-      const layer = layers.find((l) => l.id === wall.layerId);
+      const layer = layerById.get(wall.layerId);
       if (layer && !layer.visible) continue;
 
       const isSelected = this.isObjectSelected(wall.id);
+      if (!isSelected && !wallInView(wall)) continue;
       const isLocked = layer?.locked ?? false;
 
       const sScreen = this.camera.worldToScreen(wall.start);
@@ -2187,15 +2584,19 @@ export class CadEngine {
         })
       );
 
-      group.add(
-        new Konva.Line({
-          points: [sScreen.x, sScreen.y, eScreen.x, eScreen.y],
-          stroke: centerLineStroke,
-          strokeWidth: 1,
-          dash: [4, 4],
-          opacity: 0.6,
-        })
-      );
+      // مستوى التفاصيل (LOD): خط المحور لا يُرى عملياً عندما تكون سماكة الجدار على الشاشة أقل من 3px
+      if (screenThickness >= 3 || isSelected || this.disableCulling) {
+        group.add(
+          new Konva.Line({
+            points: [sScreen.x, sScreen.y, eScreen.x, eScreen.y],
+            stroke: centerLineStroke,
+            strokeWidth: 1,
+            dash: [4, 4],
+            opacity: 0.6,
+            listening: false,
+          })
+        );
+      }
 
       const dist = SnapEngine.distance(wall.start, wall.end);
       const lengthStr = GridUtils.formatLength(dist, pixelsPerMeter, meta.unit);
@@ -2225,7 +2626,8 @@ export class CadEngine {
         if (readableAngle < -90) readableAngle += 180;
       }
 
-      if (this.showWallLengths && wallLen > 0) {
+      // LOD: لا نرسم شارة الطول إذا كان الجدار على الشاشة أقصر من أن تُقرأ الشارة عليه
+      if (this.showWallLengths && wallLen > 0 && (wallLen >= 48 || isSelected || this.disableCulling)) {
         // إزاحة نص القياس خارج الجدار بمسافة ثابتة (Offset عمودي على اتجاه الجدار)
         const offsetDist = screenThickness / 2 + 15;
         const textX = midX + nx * offsetDist;
@@ -2256,7 +2658,8 @@ export class CadEngine {
             strokeWidth: 0.8,
             cornerRadius: 3,
             shadowColor: isDark ? '#000' : '#64748b',
-            shadowBlur: 3,
+            shadowBlur: heavyScene ? 0 : 3,
+            shadowEnabled: !heavyScene,
             shadowOpacity: isDark ? 0.45 : 0.2,
             listening: false,
           })
@@ -2380,11 +2783,12 @@ export class CadEngine {
     for (const obj of objects) {
       if (obj.type !== 'door') continue;
       const door = obj as DoorObject;
-      const layer = layers.find((l) => l.id === door.layerId);
+      const layer = layerById.get(door.layerId);
       if (layer && !layer.visible) continue;
 
-      const wall = this.model.getObjectById(door.wallId) as WallObject | undefined;
+      const wall = wallById.get(door.wallId);
       if (!wall) continue;
+      if (!wallInView(wall) && !this.isObjectSelected(door.id) && !this.isObjectSelected(wall.id)) continue;
 
       this.renderDoor(door, wall, layer?.locked ?? false);
     }
@@ -2393,11 +2797,12 @@ export class CadEngine {
     for (const obj of objects) {
       if (obj.type !== 'window') continue;
       const win = obj as WindowObject;
-      const layer = layers.find((l) => l.id === win.layerId);
+      const layer = layerById.get(win.layerId);
       if (layer && !layer.visible) continue;
 
-      const wall = this.model.getObjectById(win.wallId) as WallObject | undefined;
+      const wall = wallById.get(win.wallId);
       if (!wall) continue;
+      if (!wallInView(wall) && !this.isObjectSelected(win.id) && !this.isObjectSelected(wall.id)) continue;
 
       this.renderWindow(win, wall, layer?.locked ?? false);
     }
@@ -2406,8 +2811,15 @@ export class CadEngine {
     for (const obj of objects) {
       if (obj.type !== 'dimension') continue;
       const dim = obj as DimensionObject;
-      const layer = layers.find((l) => l.id === dim.layerId);
+      const layer = layerById.get(dim.layerId);
       if (layer && !layer.visible) continue;
+      if (!this.isObjectSelected(dim.id)) {
+        const pad = Math.abs(dim.offset || 25) + 60 / zoom;
+        if (!inView(
+          Math.min(dim.start.x, dim.end.x) - pad, Math.min(dim.start.y, dim.end.y) - pad,
+          Math.max(dim.start.x, dim.end.x) + pad, Math.max(dim.start.y, dim.end.y) + pad
+        )) continue;
+      }
 
       this.renderDimension(dim, layer?.locked ?? false);
     }
@@ -2416,8 +2828,13 @@ export class CadEngine {
     for (const obj of objects) {
       if (obj.type !== 'symbol') continue;
       const sym = obj as SymbolObject;
-      const layer = layers.find((l) => l.id === sym.layerId);
+      const layer = layerById.get(sym.layerId);
       if (layer && !layer.visible) continue;
+      if (!this.isObjectSelected(sym.id)) {
+        const def = getSymbolById(sym.symbolKind);
+        const r = (Math.max(def?.defaultWidth || 40, def?.defaultHeight || 40, 40) * (sym.scale || 1)) + 60 / zoom;
+        if (!inView(sym.x - r, sym.y - r, sym.x + r, sym.y + r)) continue;
+      }
 
       let symColor = sym.color || layer?.color || '#f59e0b';
       if (!isDark && !sym.color) {
@@ -2446,8 +2863,17 @@ export class CadEngine {
     for (const obj of objects) {
       if (obj.type !== 'route') continue;
       const route = obj as RouteObject;
-      const layer = layers.find((l) => l.id === route.layerId);
+      const layer = layerById.get(route.layerId);
       if (layer && !layer.visible) continue;
+      if (!this.isObjectSelected(route.id) && route.points.length > 0) {
+        let rMinX = Infinity, rMinY = Infinity, rMaxX = -Infinity, rMaxY = -Infinity;
+        for (const p of route.points) {
+          if (p.x < rMinX) rMinX = p.x; if (p.x > rMaxX) rMaxX = p.x;
+          if (p.y < rMinY) rMinY = p.y; if (p.y > rMaxY) rMaxY = p.y;
+        }
+        const pad = 80 / zoom;
+        if (!inView(rMinX - pad, rMinY - pad, rMaxX + pad, rMaxY + pad)) continue;
+      }
 
       this.renderRoute(
         route,
@@ -2461,8 +2887,18 @@ export class CadEngine {
     for (const obj of objects) {
       if (obj.type !== 'text') continue;
       const textObj = obj as TextObject;
-      const layer = layers.find((l) => l.id === textObj.layerId);
+      const layer = layerById.get(textObj.layerId);
       if (layer && !layer.visible) continue;
+      if (!this.isObjectSelected(textObj.id)) {
+        // تقدير متحفظ لأبعاد بطاقة النص (لا يتطلب قياس الخط)
+        const lines = (textObj.text || '').split('\n');
+        const longest = lines.reduce((m, l) => Math.max(m, l.length), 4);
+        const fs = textObj.fontSize || 16;
+        const w = longest * fs + 40;
+        const h = lines.length * fs * 1.6 + 40;
+        const r = Math.max(w, h);
+        if (!inView(textObj.x - r, textObj.y - r, textObj.x + r, textObj.y + r)) continue;
+      }
 
       this.renderTextObject(
         textObj,
@@ -2485,6 +2921,8 @@ export class CadEngine {
     }
 
     this.objectsLayer.batchDraw();
+    this.lastObjectsRenderMs = performance.now() - renderStart;
+    this.lastRenderedGroupCount = this.objectsLayer.getChildren().length;
   }
 
   /**
@@ -3811,7 +4249,7 @@ export class CadEngine {
       let snap = SnapEngine.findSnapPoint(
         rawWorld,
         this.model.getObjects(),
-        this.snapOptions,
+        this.getEffectiveSnapOptions(),
         wall.id
       );
 
@@ -3860,7 +4298,7 @@ export class CadEngine {
       let snap = SnapEngine.findSnapPoint(
         rawWorld,
         this.model.getObjects(),
-        this.snapOptions,
+        this.getEffectiveSnapOptions(),
         wall.id
       );
 
@@ -3943,7 +4381,7 @@ export class CadEngine {
       let snap = SnapEngine.findSnapPoint(
         rawWorld,
         this.model.getObjects(),
-        this.snapOptions,
+        this.getEffectiveSnapOptions(),
         wall.id
       );
 
@@ -3992,7 +4430,7 @@ export class CadEngine {
       let snap = SnapEngine.findSnapPoint(
         rawWorld,
         this.model.getObjects(),
-        this.snapOptions,
+        this.getEffectiveSnapOptions(),
         wall.id
       );
 
@@ -4024,6 +4462,8 @@ export class CadEngine {
    */
   private renderInteractionLayer(shiftKey: boolean = false): void {
     this.interactionLayer.destroyChildren();
+    this.interactionLayer.position({ x: 0, y: 0 });
+    this.interactionLayer.scale({ x: 1, y: 1 });
 
     const zoom = this.camera.getState().zoom;
     const meta = this.model.getMeta();
@@ -4816,6 +5256,25 @@ export class CadEngine {
   public destroy(): void {
     window.removeEventListener('keydown', this.handleKeyDown);
     window.removeEventListener('keyup', this.handleKeyUp);
+    // إصلاح تسرب: مستمعات النافذة والحاوية لم تكن تُزال، فيبقى المحرك القديم حياً ويستجيب للأحداث
+    // (يحدث فعلياً مع React StrictMode الذي يُنشئ المحرك مرتين في وضع التطوير)
+    if (this.windowMouseUpHandler) {
+      window.removeEventListener('mouseup', this.windowMouseUpHandler);
+      window.removeEventListener('touchend', this.windowMouseUpHandler);
+      window.removeEventListener('touchcancel', this.windowMouseUpHandler);
+      this.windowMouseUpHandler = null;
+    }
+    if (this.containerContextMenuHandler) {
+      this.container.removeEventListener('contextmenu', this.containerContextMenuHandler);
+      this.containerContextMenuHandler = null;
+    }
+    if (this.containerPointerDownCapture) {
+      this.container.removeEventListener('pointerdown', this.containerPointerDownCapture, true);
+      this.containerPointerDownCapture = null;
+    }
+    if (this.gestureEndTimer) clearTimeout(this.gestureEndTimer);
+    this.renderRequested = false;
+    this.gestureSnapshotCanvas = null;
     this.stage.destroy();
   }
 }

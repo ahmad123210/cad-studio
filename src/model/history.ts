@@ -13,6 +13,7 @@ export class CommandManager {
   private redoStack: Command[] = [];
   private maxHistorySize: number = 100;
   private listeners: Set<HistoryChangeListener> = new Set();
+  private pushCounter: number = 0;
 
   constructor(maxHistorySize: number = 100) {
     this.maxHistorySize = maxHistorySize;
@@ -22,6 +23,7 @@ export class CommandManager {
    * تسجيل أمر جديد في مكدس التراجع ومسح مكدس الإعادة
    */
   public push(command: Command): void {
+    this.pushCounter++;
     this.undoStack.push(command);
     if (this.undoStack.length > this.maxHistorySize) {
       this.undoStack.shift();
@@ -57,6 +59,16 @@ export class CommandManager {
 
   public canUndo(): boolean {
     return this.undoStack.length > 0;
+  }
+
+  /** عدد خطوات التراجع المتاحة */
+  public getUndoCount(): number {
+    return this.undoStack.length;
+  }
+
+  /** عدّاد تراكمي لكل الأوامر المسجلة (لا يتأثر بحد الحجم الأقصى) — لمعرفة هل أضاف إجراءٌ ما خطوة جديدة */
+  public getPushCount(): number {
+    return this.pushCounter;
   }
 
   public canRedo(): boolean {
