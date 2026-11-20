@@ -47,7 +47,7 @@ import type { CadEngine, ToolMode, SketchUpCalibrationEvent, WallDrawingState, E
 import { BoxRect, isObjectInBox, pointInBox, segmentIntersectsBox } from '../geometry/selectionBox.ts';
 
 /** الأدوات التي تقبل إدخال أرقام/إحداثيات من لوحة المفاتيح */
-const POINT_INPUT_TOOLS: ToolMode[] = ['wall', 'dimension', 'measure', 'route', 'area', 'symbol', 'door', 'window', 'text', 'calibrate'];
+const POINT_INPUT_TOOLS: ToolMode[] = ['wall', 'dimension', 'measure', 'route', 'area', 'symbol', 'door', 'window', 'text', 'calibrate', 'edit'];
 
 export function handleKeyDownImpl(this: CadEngine, e: KeyboardEvent): void {
     if (e.key === 'Shift') {

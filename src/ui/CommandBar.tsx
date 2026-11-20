@@ -18,7 +18,7 @@ interface CommandBarProps {
   hidden?: boolean;
 }
 
-const POINT_TOOLS: ToolMode[] = ['wall', 'dimension', 'measure', 'route', 'area', 'symbol', 'door', 'window', 'text', 'calibrate'];
+const POINT_TOOLS: ToolMode[] = ['wall', 'dimension', 'measure', 'route', 'area', 'symbol', 'door', 'window', 'text', 'calibrate', 'edit'];
 
 const TOOL_NAMES: Partial<Record<ToolMode, string>> = {
   wall: 'جدار',
@@ -31,6 +31,7 @@ const TOOL_NAMES: Partial<Record<ToolMode, string>> = {
   window: 'نافذة',
   text: 'ملاحظة',
   calibrate: 'معايرة',
+  edit: 'تحرير',
 };
 
 function promptFor(tool: ToolMode, hasOrigin: boolean): string {
@@ -93,7 +94,7 @@ export const CommandBar: React.FC<CommandBarProps> = ({ engine, currentTool, hid
       setError(null);
       return;
     }
-    const err = engine.applyPointInput(value);
+    const err = engine.isEditAwaitingValue() ? engine.applyEditValue(value) : engine.applyPointInput(value);
     setError(err);
     if (!err) {
       setValue('');
@@ -117,14 +118,22 @@ export const CommandBar: React.FC<CommandBarProps> = ({ engine, currentTool, hid
     >
       <Terminal size={14} className="text-sky-400 shrink-0" />
       <span className="text-sky-300 font-semibold whitespace-nowrap">{TOOL_NAMES[currentTool] || currentTool}:</span>
-      <span className="text-[var(--cad-text-secondary,#a3a3a3)] whitespace-nowrap hidden sm:inline">{promptFor(currentTool, hasOrigin)}</span>
+      <span className="text-[var(--cad-text-secondary,#a3a3a3)] whitespace-nowrap hidden sm:inline">
+        {currentTool === 'edit' && engine ? engine.getEditPrompt() : promptFor(currentTool, hasOrigin)}
+      </span>
       <input
         ref={inputRef}
         value={value}
         onChange={(e) => setValue(e.target.value)}
         dir="ltr"
         inputMode="decimal"
-        placeholder={hasOrigin ? '@3<0  أو  @2,1  أو  3.5' : 'x,y  مثل 4,2.5'}
+        placeholder={
+          currentTool === 'edit' && engine?.isEditAwaitingValue()
+            ? 'قيمة'
+            : hasOrigin
+              ? '@3<0  أو  @2,1  أو  3.5'
+              : 'x,y  مثل 4,2.5'
+        }
         className="w-40 bg-neutral-950/80 border border-neutral-700 focus:border-sky-400 rounded-lg px-2 py-1 font-mono-cad text-white outline-none text-center"
         title="بالمتر: x,y مطلق · @dx,dy نسبي · @طول<زاوية قطبي (0° يمين، 90° للأسفل) · طول فقط باتجاه المؤشر"
         aria-label="إدخال الإحداثيات"

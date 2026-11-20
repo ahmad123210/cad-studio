@@ -50,6 +50,7 @@ import { GridDensity, ThemeMode, getLastUsedSettings, updateLastUsedSettings } f
 import { PanelRightOpen } from 'lucide-react';
 import { liveStatus, useLiveStatus } from './engine/liveStatus.ts';
 import { CommandBar } from './ui/CommandBar.tsx';
+import { rotateSpec, selectionCenter, withHostedObjects } from './model/transforms.ts';
 
 /**
  * شريط الحالة المتصل مباشرة بالقيم عالية التردد (المؤشر/الالتقاط/الزوم)
@@ -732,13 +733,24 @@ export default function App() {
     const targets = selectedObjectIds.length > 0
       ? selectedObjectIds
       : (contextMenu.targetObjectId ? [contextMenu.targetObjectId] : []);
-    targets.forEach((id) => {
-      const obj = model.getObjectById(id);
-      if (obj && (obj.type === 'symbol' || obj.type === 'text')) {
-        const curRot = (obj as any).rotation || 0;
-        model.updateObject(id, { rotation: (curRot + deg) % 360 });
+    const objs = targets.map((id) => model.getObjectById(id)).filter((o): o is ProjectObject => Boolean(o));
+    const onlySymbolsOrTexts = objs.every((o) => o.type === 'symbol' || o.type === 'text');
+    if (onlySymbolsOrTexts) {
+      // السلوك الأصلي: كل رمز/نص يدور حول نفسه
+      targets.forEach((id) => {
+        const obj = model.getObjectById(id);
+        if (obj && (obj.type === 'symbol' || obj.type === 'text')) {
+          const curRot = (obj as any).rotation || 0;
+          model.updateObject(id, { rotation: (curRot + deg) % 360 });
+        }
+      });
+    } else {
+      // جدران/مسارات/أبعاد (أو تحديد مختلط): تدوير المجموعة حول مركزها كخطوة تراجع واحدة
+      const center = selectionCenter(objs);
+      if (center) {
+        model.applyTransform(withHostedObjects(targets, model.getObjects()), rotateSpec(center, deg), `تدوير ${deg}°`);
       }
-    });
+    }
     engineRef.current?.render();
     setContextMenu({ position: null, targetObjectId: null });
   }, [selectedObjectIds, contextMenu.targetObjectId, model]);
@@ -1586,6 +1598,10 @@ export default function App() {
           onLockToggle={handleContextMenuLockToggle}
           onRotate={handleContextMenuRotate}
           onToggleLength={handleToggleWallLengths}
+          onEditCommand={(kind) => {
+            const err = engineRef.current?.startEditCommand(kind);
+            if (err) alert(err);
+          }}
           onSelectAll={handleContextMenuSelectAll}
           onZoomFit={() => engineRef.current?.resetZoom()}
           onOpenProperties={() => setIsPropertiesPanelVisible(true)}

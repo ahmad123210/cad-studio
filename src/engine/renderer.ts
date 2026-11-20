@@ -54,6 +54,17 @@ import {
   getLastUsedSymbolConfig,
 } from '../model/lastUsedSettings.ts';
 import { BoxRect, isObjectInBox } from './geometry/selectionBox.ts';
+import {
+  EditCommandKind,
+  EditCommandState,
+  startEditCommandImpl,
+  isEditAwaitingValueImpl,
+  getEditPromptImpl,
+  applyEditValueImpl,
+  handleEditClickImpl,
+  renderEditPreviewImpl,
+} from './tools/editCommands.ts';
+export type { EditCommandKind } from './tools/editCommands.ts';
 import { commitWallWithLengthImpl, finishRouteImpl, finishCalibrationImpl } from './tools/drawingTools.ts';
 import { onGroupDragStartImpl, onGroupDragMoveImpl, onGroupDragEndImpl, selectSimilarImpl } from './interaction/groupDrag.ts';
 import { getDrawingBoundsImpl, exportDrawingImageDataURLImpl } from './export/exportImage.ts';
@@ -82,7 +93,8 @@ export type ToolMode =
   | 'area'
   | 'calibrate'
   | 'pan'
-  | 'text';
+  | 'text'
+  | 'edit'; // أمر تحرير بنقطة أساس (نقل/نسخ/تدوير/تحجيم/مرآة/مصفوفة/إزاحة)
 
 export interface SketchUpCalibrationEvent {
   startWorld: Point;
@@ -554,7 +566,34 @@ export class CadEngine {
   // ═══ دقة الرسم: التعامد F8، تتبع المحاذاة، والإدخال الرقمي للإحداثيات ═══
 
   /** الأدوات التي يُفعَّل فيها تتبع المحاذاة والالتقاط العمودي */
-  static readonly TRACKING_TOOLS: ToolMode[] = ['wall', 'dimension', 'measure', 'route', 'area', 'calibrate'];
+  static readonly TRACKING_TOOLS: ToolMode[] = ['wall', 'dimension', 'measure', 'route', 'area', 'calibrate', 'edit'];
+
+  // ═══ أوامر التحرير بنقطة أساس (tools/editCommands.ts) ═══
+  editCmd: EditCommandState | null = null;
+
+  public startEditCommand(kind: EditCommandKind): string | null {
+    return startEditCommandImpl.call(this, kind);
+  }
+
+  public isEditAwaitingValue(): boolean {
+    return isEditAwaitingValueImpl.call(this);
+  }
+
+  public getEditPrompt(): string {
+    return getEditPromptImpl.call(this);
+  }
+
+  public applyEditValue(text: string): string | null {
+    return applyEditValueImpl.call(this, text);
+  }
+
+  handleEditClick(point: Point, objectSnapped: boolean, shift: boolean): void {
+    return handleEditClickImpl.call(this, point, objectSnapped, shift);
+  }
+
+  renderEditPreview(shift: boolean): void {
+    return renderEditPreviewImpl.call(this, shift);
+  }
   /** نقاط التقاط مكتسبة (نهايات/منتصفات/تقاطعات مرّ عليها المؤشر) لتتبع المحاذاة */
   trackPoints: Point[] = [];
   /** نقطة مفروضة من شريط الأوامر تُستخدم بدلاً من موضع المؤشر في النقرة المحاكاة */
@@ -592,6 +631,7 @@ export class CadEngine {
     if (this.isCalibrating && this.calibrateStartPoint) return this.calibrateStartPoint;
     if (this.toolMode === 'route' && this.routePoints.length > 0) return this.routePoints[this.routePoints.length - 1];
     if (this.toolMode === 'area' && this.areaPoints.length > 0) return this.areaPoints[this.areaPoints.length - 1];
+    if (this.toolMode === 'edit' && this.editCmd?.base && this.editCmd.step >= 1) return this.editCmd.base;
     return null;
   }
 
@@ -930,6 +970,13 @@ export class CadEngine {
 
   public cancelDrawing(): void {
     this.trackPoints = [];
+    if (this.editCmd) {
+      this.editCmd = null;
+      if (this.toolMode === 'edit') {
+        this.toolMode = 'select';
+        this.callbacks.onToolModeChange?.('select');
+      }
+    }
     this.isDrawingWall = false;
     this.wallStartPoint = null;
     this.callbacks.onWallDrawingStateChange?.({
@@ -1041,7 +1088,8 @@ export class CadEngine {
       this.toolMode === 'calibrate' ||
       this.toolMode === 'area' ||
       this.toolMode === 'route' ||
-      this.toolMode === 'text'
+      this.toolMode === 'text' ||
+      this.toolMode === 'edit'
     ) {
       this.stage.container().style.cursor = 'crosshair';
     } else if (this.toolMode === 'door' || this.toolMode === 'window') {

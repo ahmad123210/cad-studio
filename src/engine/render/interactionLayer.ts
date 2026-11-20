@@ -51,6 +51,11 @@ export function renderInteractionLayerImpl(this: CadEngine, shiftKey: boolean = 
     this.interactionLayer.position({ x: 0, y: 0 });
     this.interactionLayer.scale({ x: 1, y: 1 });
 
+    // معاينة أوامر التحرير (نقل/نسخ/تدوير...)
+    if (this.toolMode === 'edit') {
+      this.renderEditPreview(shiftKey);
+    }
+
     const zoom = this.camera.getState().zoom;
     const meta = this.model.getMeta();
     const pixelsPerMeter = meta.scale || 50;

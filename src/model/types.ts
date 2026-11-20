@@ -255,6 +255,8 @@ export interface AddObjectCommand extends BaseCommand {
 export interface DeleteObjectCommand extends BaseCommand {
   type: 'delete';
   object: ProjectObject;
+  /** موضع العنصر الأصلي في قائمة العناصر (لاستعادة ترتيب الرسم عند التراجع) */
+  index?: number;
 }
 
 export interface UpdateObjectCommand extends BaseCommand {
