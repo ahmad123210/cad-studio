@@ -19,6 +19,7 @@ import Konva from 'konva';
 import {
   Point,
   ProjectObject,
+  LineObject,
   WallObject,
   DoorObject,
   WindowObject,
@@ -55,6 +56,7 @@ import {
 } from '../model/lastUsedSettings.ts';
 import { BoxRect, isObjectInBox } from './geometry/selectionBox.ts';
 import { SpatialIndex } from './geometry/spatialIndex.ts';
+import { renderLineworkImpl } from './render/linework.ts';
 import {
   EditCommandKind,
   EditCommandState,
@@ -610,6 +612,10 @@ export class CadEngine {
 
   renderEditPreview(shift: boolean): void {
     return renderEditPreviewImpl.call(this, shift);
+  }
+
+  renderLinework(line: LineObject, isLocked: boolean, layerColor: string, layerOpacity: number): void {
+    return renderLineworkImpl.call(this, line, isLocked, layerColor, layerOpacity);
   }
   /** نقاط التقاط مكتسبة (نهايات/منتصفات/تقاطعات مرّ عليها المؤشر) لتتبع المحاذاة */
   trackPoints: Point[] = [];

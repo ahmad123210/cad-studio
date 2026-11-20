@@ -94,7 +94,8 @@ function boxOf(o: ProjectObject, walls: Map<string, WallObject>): Box | null {
       const s = o as SymbolObject | TextObject;
       return { minX: s.x, minY: s.y, maxX: s.x, maxY: s.y };
     }
-    case 'route': {
+    case 'route':
+    case 'line': {
       const pts = (o as RouteObject).points;
       if (pts.length === 0) return null;
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;

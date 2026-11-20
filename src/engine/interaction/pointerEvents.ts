@@ -491,25 +491,38 @@ export function bindEventsImpl(this: CadEngine): void {
         if (isBackgroundTarget) {
           // فحص ذكي: هل النقر قريب من أي عنصر (ضمن 14 بكسل) لتفادي فشل النقر في الشبكة الدقيقة؟
           let nearbyObjId: string | null = null;
+          // سماحية النقر بالبكسل على الشاشة (لا تنكمش إلى لا شيء عند التصغير الشديد)
+          const zf = Math.max(1, 1 / (this.camera.getState().zoom || 1));
           const all = this.model.getObjects();
           for (const obj of all) {
             if (obj.type === 'wall') {
               const w = obj as WallObject;
               const d = SnapEngine.pointToSegmentDistance(worldRaw, w.start, w.end);
-              if (d <= (w.thickness / 2 + 14)) {
+              if (d <= (w.thickness / 2 + 14 * zf)) {
                 nearbyObjId = w.id;
                 break;
               }
             } else if (obj.type === 'symbol') {
               const s = obj as SymbolObject;
-              if (SnapEngine.distance(worldRaw, { x: s.x, y: s.y }) <= 25) {
+              if (SnapEngine.distance(worldRaw, { x: s.x, y: s.y }) <= 25 * zf) {
                 nearbyObjId = s.id;
                 break;
               }
+            } else if (obj.type === 'line') {
+              const ln = obj as unknown as { points: Point[]; closed?: boolean; id: string };
+              const n = ln.points.length;
+              const segs = ln.closed && n > 2 ? n : n - 1;
+              for (let i = 0; i < segs; i++) {
+                if (SnapEngine.pointToSegmentDistance(worldRaw, ln.points[i], ln.points[(i + 1) % n]) <= 8 * zf) {
+                  nearbyObjId = ln.id;
+                  break;
+                }
+              }
+              if (nearbyObjId) break;
             } else if (obj.type === 'route') {
               const r = obj as RouteObject;
               for (let i = 0; i < r.points.length - 1; i++) {
-                if (SnapEngine.pointToSegmentDistance(worldRaw, r.points[i], r.points[i + 1]) <= 14) {
+                if (SnapEngine.pointToSegmentDistance(worldRaw, r.points[i], r.points[i + 1]) <= 14 * zf) {
                   nearbyObjId = r.id;
                   break;
                 }
@@ -517,13 +530,13 @@ export function bindEventsImpl(this: CadEngine): void {
               if (nearbyObjId) break;
             } else if (obj.type === 'text') {
               const t = obj as TextObject;
-              if (SnapEngine.distance(worldRaw, { x: t.x, y: t.y }) <= 30) {
+              if (SnapEngine.distance(worldRaw, { x: t.x, y: t.y }) <= 30 * zf) {
                 nearbyObjId = t.id;
                 break;
               }
             } else if (obj.type === 'dimension') {
               const dim = obj as DimensionObject;
-              if (SnapEngine.pointToSegmentDistance(worldRaw, dim.start, dim.end) <= 14) {
+              if (SnapEngine.pointToSegmentDistance(worldRaw, dim.start, dim.end) <= 14 * zf) {
                 nearbyObjId = dim.id;
                 break;
               }

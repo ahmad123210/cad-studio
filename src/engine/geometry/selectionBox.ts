@@ -38,6 +38,15 @@ export function isObjectInBox(obj: ProjectObject, box: BoxRect, allObjects?: Pro
       (sym.x >= box.minX - 15 && sym.x <= box.maxX + 15 && sym.y >= box.minY - 15 && sym.y <= box.maxY + 15)
     );
   }
+  if (obj.type === 'line') {
+    const ln = obj as { points: Point[]; closed?: boolean };
+    if (!ln.points || ln.points.length === 0) return false;
+    for (let i = 0; i < ln.points.length - 1; i++) {
+      if (segmentIntersectsBox(ln.points[i], ln.points[i + 1], box)) return true;
+    }
+    if (ln.closed && ln.points.length > 2 && segmentIntersectsBox(ln.points[ln.points.length - 1], ln.points[0], box)) return true;
+    return pointInBox(ln.points[0], box);
+  }
   if (obj.type === 'route') {
     const rt = obj as RouteObject;
     if (!rt.points || rt.points.length === 0) return false;

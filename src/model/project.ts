@@ -17,6 +17,7 @@ import {
   SymbolObject,
   RouteObject,
   TextObject,
+  LineObject,
   BackgroundImageData,
   Command,
   Point,
@@ -24,6 +25,8 @@ import {
 } from './types.ts';
 import { CommandManager } from './history.ts';
 import { TransformSpec, transformUpdates } from './transforms.ts';
+import { CURRENT_SCHEMA_VERSION, migrateProjectData } from './schema.ts';
+import { idbSaveProject, idbLoadProject, idbAddBackup, idbListBackups, idbGetBackup, BackupEntry } from './storage.ts';
 
 function getObjectTypeName(type: string): string {
   switch (type) {
@@ -41,6 +44,8 @@ function getObjectTypeName(type: string): string {
       return 'مسار / كابل';
     case 'text':
       return 'ملاحظة نصية';
+    case 'line':
+      return 'خط';
     default:
       return type;
   }
@@ -600,6 +605,11 @@ export class ProjectModel {
         (beforeState as any)['points'] = route.points.map((p) => ({ ...p }));
         route.points = route.points.map((p) => ({ x: r6(p.x + delta.x), y: r6(p.y + delta.y) }));
         (afterState as any)['points'] = route.points.map((p) => ({ ...p }));
+      } else if (obj.type === 'line') {
+        const ln = obj as LineObject;
+        (beforeState as any)['points'] = ln.points.map((p) => ({ ...p }));
+        ln.points = ln.points.map((p) => ({ x: r6(p.x + delta.x), y: r6(p.y + delta.y) }));
+        (afterState as any)['points'] = ln.points.map((p) => ({ ...p }));
       } else if (obj.type === 'text') {
         const txt = obj as TextObject;
         (beforeState as any)['x'] = txt.x;
@@ -922,45 +932,31 @@ export class ProjectModel {
         : null,
       sheets: JSON.parse(JSON.stringify(this.sheets)),
       activeSheetId: this.activeSheetId,
+      schemaVersion: CURRENT_SCHEMA_VERSION,
     };
   }
 
-  public loadFromJSON(data: ProjectData): void {
-    if (!data || !data.project) {
-      throw new Error('صيغة مشروع غير صالحة');
-    }
+  /**
+   * تحميل مشروع من بيانات خام (ملف/تخزين) بعد الترحيل للإصدار الحالي والتحقق من صحتها.
+   * يعيد قائمة تحذيرات (عناصر تالفة أُصلحت أو أُهملت) لعرضها للمستخدم؛ يرمي خطأً إن لم يكن مشروعاً أصلاً.
+   */
+  public loadFromJSON(input: ProjectData): string[] {
+    const { data, report } = migrateProjectData(input, DEFAULT_LAYERS);
     this.meta = { ...data.project };
-    this.layers = JSON.parse(JSON.stringify(data.layers || DEFAULT_LAYERS));
-    this.backgroundImage = data.backgroundImage || null;
+    this.layers = JSON.parse(JSON.stringify(data.layers));
     this.activeLayerId = this.layers[0]?.id || 'arch';
     this.history.clear();
 
-    if (data.sheets && data.sheets.length > 0) {
-      this.sheets = JSON.parse(JSON.stringify(data.sheets));
-      this.activeSheetId = data.activeSheetId || this.sheets[0].id;
-      const current = this.sheets.find((s) => s.id === this.activeSheetId) || this.sheets[0];
-      this.activeSheetId = current.id;
-      this.objects = JSON.parse(JSON.stringify(current.objects || []));
-      this.backgroundImage = current.backgroundImage
-        ? JSON.parse(JSON.stringify(current.backgroundImage))
-        : null;
-    } else {
-      this.objects = data.objects || [];
-      this.sheets = [
-        {
-          id: 'sheet_1',
-          name: 'لوحة 1 - المخطط العام',
-          objects: JSON.parse(JSON.stringify(this.objects)),
-          backgroundImage: this.backgroundImage
-            ? JSON.parse(JSON.stringify(this.backgroundImage))
-            : null,
-          createdAt: new Date().toISOString().split('T')[0],
-        },
-      ];
-      this.activeSheetId = 'sheet_1';
-    }
+    this.sheets = JSON.parse(JSON.stringify(data.sheets || []));
+    const current = this.sheets.find((s) => s.id === data.activeSheetId) || this.sheets[0];
+    this.activeSheetId = current.id;
+    this.objects = JSON.parse(JSON.stringify(current.objects || []));
+    this.backgroundImage = current.backgroundImage
+      ? JSON.parse(JSON.stringify(current.backgroundImage))
+      : null;
 
     this.notify();
+    return report.warnings;
   }
 
   /**
@@ -968,15 +964,117 @@ export class ProjectModel {
    * سابقاً كان الخطأ QuotaExceededError يُرمى دون معالجة فيظهر المشروع "محفوظاً" وهو غير محفوظ.
    */
   public saveToLocalStorage(): boolean {
+    const data = this.toJSON();
+    data.savedAt = new Date().toISOString();
+    // نسخة في IndexedDB دائماً (بلا حد حجم) — لا ننتظرها هنا للحفاظ على التوقيع المتزامن
+    void idbSaveProject(this.projectId, data).catch(() => undefined);
     try {
-      const data = this.toJSON();
       localStorage.setItem(STORAGE_PREFIX + this.projectId, JSON.stringify(data));
       localStorage.setItem(CURRENT_PROJECT_KEY, this.projectId);
       return true;
     } catch (err) {
       console.error('saveToLocalStorage failed (storage quota?):', err);
+      this.dropStaleLocalCopy();
       return false;
     }
+  }
+
+  /** عند فشل localStorage نزيل نسخته القديمة حتى لا تُحمَّل بدل نسخة IndexedDB الأحدث */
+  private dropStaleLocalCopy(): void {
+    try {
+      localStorage.removeItem(STORAGE_PREFIX + this.projectId);
+      localStorage.setItem(CURRENT_PROJECT_KEY, this.projectId);
+    } catch {
+      // تجاهل
+    }
+  }
+
+  private lastBackupAt = 0;
+  /** أقل فاصل بين نسختين احتياطيتين تلقائيتين */
+  private static readonly BACKUP_INTERVAL_MS = 2 * 60 * 1000;
+
+  /**
+   * الحفظ المحلي الموثوق (المتصفح): IndexedDB أولاً (بلا حد حجم) ثم localStorage كنسخة سريعة،
+   * مع نسخة احتياطية تلقائية كل دقيقتين على الأقل (تُحفظ آخر 10 نسخ).
+   * ينجح إذا نجح أيٌّ من المخزنين.
+   */
+  public async saveLocal(options: { forceBackup?: boolean } = {}): Promise<{ ok: boolean; indexedDb: boolean; localStorage: boolean }> {
+    const data = this.toJSON();
+    data.savedAt = new Date().toISOString();
+    let idbOk = false;
+    let lsOk = false;
+    try {
+      await idbSaveProject(this.projectId, data);
+      idbOk = true;
+    } catch (err) {
+      console.warn('IndexedDB save failed:', err);
+    }
+    try {
+      localStorage.setItem(STORAGE_PREFIX + this.projectId, JSON.stringify(data));
+      localStorage.setItem(CURRENT_PROJECT_KEY, this.projectId);
+      lsOk = true;
+    } catch {
+      if (idbOk) this.dropStaleLocalCopy();
+    }
+    const now = Date.now();
+    if (idbOk && (options.forceBackup || now - this.lastBackupAt >= ProjectModel.BACKUP_INTERVAL_MS)) {
+      try {
+        await idbAddBackup(this.projectId, data);
+        this.lastBackupAt = now;
+      } catch (err) {
+        console.warn('Backup failed:', err);
+      }
+    }
+    return { ok: idbOk || lsOk, indexedDb: idbOk, localStorage: lsOk };
+  }
+
+  /**
+   * بعد التحميل المتزامن من localStorage: إن كانت نسخة IndexedDB أحدث (أو localStorage فارغ لأن المشروع
+   * تجاوز حجمه) نحمّلها. يعيد true إن حُمِّلت نسخة.
+   */
+  public async loadNewerFromIndexedDB(): Promise<boolean> {
+    const versionAtStart = this.version;
+    let localSavedAt = '';
+    let id = this.projectId;
+    try {
+      id = localStorage.getItem(CURRENT_PROJECT_KEY) || this.projectId;
+      const raw = localStorage.getItem(STORAGE_PREFIX + id);
+      if (raw) localSavedAt = (JSON.parse(raw) as ProjectData).savedAt || '';
+      else localSavedAt = '';
+    } catch {
+      // تجاهل
+    }
+    try {
+      const rec = await idbLoadProject(id);
+      if (!rec) return false;
+      const lsHasCopy = (() => {
+        try {
+          return Boolean(localStorage.getItem(STORAGE_PREFIX + id));
+        } catch {
+          return false;
+        }
+      })();
+      if (lsHasCopy && localSavedAt && rec.savedAt <= localSavedAt) return false;
+      // لا نستبدل عمل المستخدم إن بدأ التعديل قبل اكتمال القراءة
+      if (this.version !== versionAtStart) return false;
+      this.projectId = id;
+      this.loadFromJSON(rec.data);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  public listBackups(): Promise<BackupEntry[]> {
+    return idbListBackups(this.projectId);
+  }
+
+  /** استعادة نسخة احتياطية (تُحفظ النسخة الحالية أولاً كنسخة احتياطية حتى يمكن التراجع عن الاستعادة) */
+  public async restoreBackup(key: number): Promise<string[]> {
+    const data = await idbGetBackup(key);
+    if (!data) throw new Error('النسخة الاحتياطية غير موجودة');
+    await this.saveLocal({ forceBackup: true });
+    return this.loadFromJSON(data);
   }
 
   public loadFromLocalStorage(id?: string): boolean {

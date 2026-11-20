@@ -43,7 +43,8 @@ export type ObjectType =
   | 'symbol'
   | 'route'
   | 'dimension'
-  | 'text';
+  | 'text'
+  | 'line'; // خطوط حرة/مستوردة (Linework) مثل خطوط DXF غير الجدارية والأقواس والدوائر
 
 export interface BaseObject {
   id: string;
@@ -209,7 +210,23 @@ export interface TextObject extends BaseObject {
   align?: 'left' | 'center' | 'right'; // محاذاة النص
 }
 
+/**
+ * عنصر الخطوط الحرة (Linework): خط متعدد الرؤوس مفتوح أو مغلق، بلا دلالة إنشائية.
+ * يُستخدم أساساً لاستيراد DXF (أثاث، محاور، رموز الكتل، الأقواس والدوائر بعد تقريبها)
+ * دون تحويلها خطأً إلى جدران سميكة. لا يدخل في جداول الكميات.
+ */
+export interface LineObject extends BaseObject {
+  type: 'line';
+  points: Point[];
+  closed?: boolean;
+  color?: string;
+  /** سماكة الخط على الشاشة بالبكسل (لا تتغير مع التكبير، كخطوط CAD) */
+  strokeWidth?: number;
+  lineStyle?: 'solid' | 'dashed' | 'dotted';
+}
+
 export type ProjectObject =
+  | LineObject
   | WallObject
   | DoorObject
   | WindowObject
@@ -234,6 +251,10 @@ export interface ProjectData {
   backgroundImage?: BackgroundImageData | null;
   sheets?: ProjectSheet[];
   activeSheetId?: string;
+  /** إصدار صيغة الملف (انظر model/schema.ts) */
+  schemaVersion?: number;
+  /** وقت آخر حفظ محلي (لمقارنة نسخ التخزين) */
+  savedAt?: string;
 }
 
 /**

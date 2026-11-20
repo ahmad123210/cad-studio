@@ -22,6 +22,7 @@ import type {
   SymbolObject,
   RouteObject,
   TextObject,
+  LineObject,
 } from '../../model/types.ts';
 import { getSymbolById } from '../../symbols/registry.ts';
 import { wallOutline } from '../geometry/wallJoins.ts';
@@ -40,6 +41,7 @@ export interface BatchInput {
   symbols: SymbolObject[];
   routes: RouteObject[];
   texts: TextObject[];
+  lines: LineObject[];
   layerById: Map<string, Layer>;
   wallEndpointIndex: Map<string, WallObject[]>;
 }
@@ -133,6 +135,14 @@ export function renderBatchedImpl(this: CadEngine, input: BatchInput): void {
     pushGroup(symbolMarks, color, [sx(s.x), sy(s.y), r]);
   }
 
+  const freeLines = new Map<string, { pts: number[]; closed: boolean }[]>();
+  for (const l of input.lines) {
+    const layer = input.layerById.get(l.layerId);
+    let color = l.color || layer?.color || '#94a3b8';
+    if (!isDark && LIGHT_WALL_COLORS.has(color)) color = '#334155';
+    pushGroup(freeLines, color, { pts: l.points.flatMap((p) => [sx(p.x), sy(p.y)]), closed: Boolean(l.closed) });
+  }
+
   const dimLines: number[][] = [];
   for (const d of input.dimensions) {
     dimLines.push([sx(d.start.x), sy(d.start.y), sx(d.end.x), sy(d.end.y)]);
@@ -205,8 +215,20 @@ export function renderBatchedImpl(this: CadEngine, input: BatchInput): void {
         ctx.lineWidth = 1;
         ctx.stroke();
       }
-      // المسارات
+      // الخطوط الحرة
       ctx.lineJoin = 'round';
+      for (const [color, lines] of freeLines) {
+        ctx.beginPath();
+        for (const l of lines) {
+          ctx.moveTo(l.pts[0], l.pts[1]);
+          for (let i = 2; i < l.pts.length; i += 2) ctx.lineTo(l.pts[i], l.pts[i + 1]);
+          if (l.closed) ctx.closePath();
+        }
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+      // المسارات
       for (const [color, lines] of routeLines) {
         ctx.beginPath();
         for (const p of lines) {

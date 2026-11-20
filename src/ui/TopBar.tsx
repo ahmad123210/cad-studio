@@ -124,8 +124,10 @@ export const TopBar: React.FC<TopBarProps> = ({
           alert('الملف المحدد ليس ملف مخطط هندسي صالح.');
           return;
         }
-        model.loadFromJSON(parsed);
+        // الترحيل والتحقق: العناصر التالفة تُصلح أو تُهمل مع تقرير بدلاً من كسر المشروع
+        const warnings = model.loadFromJSON(parsed);
         setProjectName(parsed.project.name || 'مشروع مستورد');
+        if (warnings.length) alert('فُتح الملف مع ملاحظات:\n' + warnings.join('\n'));
       } catch (err) {
         alert('حدث خطأ أثناء قراءة ملف JSON: ' + (err as Error).message);
       }

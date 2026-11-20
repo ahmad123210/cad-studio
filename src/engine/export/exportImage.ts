@@ -81,7 +81,7 @@ export function getDrawingBoundsImpl(this: CadEngine, includeBackground: boolean
         const s = obj as SymbolObject;
         includePt({ x: s.x - 25, y: s.y - 25 });
         includePt({ x: s.x + 25, y: s.y + 25 });
-      } else if (obj.type === 'route') {
+      } else if (obj.type === 'route' || obj.type === 'line') {
         const r = obj as RouteObject;
         r.points.forEach(includePt);
       } else if (obj.type === 'dimension') {

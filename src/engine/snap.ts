@@ -412,6 +412,26 @@ export class SnapEngine {
               }
             }
           }
+        } else if (obj.type === 'line') {
+          // الخطوط الحرة (مثل المستوردة من DXF): رؤوسها نهايات، ومقاطعها تدخل في التقاطع والالتصاق
+          const ln = obj as unknown as { points: Point[]; closed?: boolean };
+          const n = ln.points.length;
+          const segCount = ln.closed && n > 2 ? n : n - 1;
+          for (let i = 0; i < segCount; i++) {
+            const a = ln.points[i];
+            const b = ln.points[(i + 1) % n];
+            const proj = this.projectPointOnSegment(cursorPos, a, b);
+            if (proj.distance <= reach) nearSegments.push({ a, b, id: obj.id });
+            if (proj.distance <= snapRadius && (!closestWallEdge || proj.distance < closestWallEdge.dist)) {
+              closestWallEdge = { point: proj.point, dist: proj.distance, wallId: obj.id };
+            }
+          }
+          for (const pt of ln.points) {
+            const d = this.distance(cursorPos, pt);
+            if (d <= snapRadius && (!closestEndpoint || d < closestEndpoint.dist)) {
+              closestEndpoint = { point: { ...pt }, dist: d, wallId: obj.id };
+            }
+          }
         } else if (obj.type === 'route') {
           // فحص رؤوس المسارات القائمة (Route Vertices)
           const route = obj as RouteObject;

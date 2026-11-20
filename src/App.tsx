@@ -105,7 +105,7 @@ function cloneObjectsWithOffset(source: ProjectObject[], offset: number): Projec
     } else if (clone.type === 'symbol' || clone.type === 'text') {
       clone.x += offset;
       clone.y += offset;
-    } else if (clone.type === 'route') {
+    } else if (clone.type === 'route' || clone.type === 'line') {
       clone.points = clone.points.map((p: Point) => ({ x: p.x + offset, y: p.y + offset }));
     }
     return clone as ProjectObject;
@@ -581,6 +581,15 @@ export default function App() {
       engine.requestRender();
     });
 
+    // إن كانت نسخة IndexedDB أحدث من localStorage (أو المشروع أكبر من حدّه) نحمّلها بعد الإقلاع
+    model.loadNewerFromIndexedDB().then((loaded) => {
+      if (loaded) {
+        setActiveSheetId(model.getActiveSheetId());
+        setIsSaved(true);
+        engine.render();
+      }
+    });
+
     const unsubscribeHistory = model.getHistory().subscribe((undoable, redoable) => {
       setCanUndo(undoable);
       setCanRedo(redoable);
@@ -819,11 +828,12 @@ export default function App() {
       // إذا لم يكن هناك مسار سابق، نفتح نافذة حفظ ويندوز الحقيقية مباشرة
       await handleSaveAs();
     } else {
-      const ok = model.saveToLocalStorage();
-      if (ok) {
+      // المتصفح: IndexedDB (بلا حد حجم) + localStorage + نسخة احتياطية
+      const res = await model.saveLocal({ forceBackup: true });
+      if (res.ok) {
         setIsSaved(true);
       } else {
-        alert('تعذّر الحفظ في ذاكرة المتصفح (غالباً بسبب حجم صورة الخلفية). استخدم "حفظ باسم" لتنزيل ملف المشروع.');
+        alert('تعذّر الحفظ في ذاكرة المتصفح. استخدم "حفظ باسم" لتنزيل ملف المشروع.');
       }
     }
   }, [model, lastSavedPath, handleSaveAs]);
@@ -846,8 +856,9 @@ export default function App() {
             model.saveToLocalStorage();
           }
         } else {
-          // حفظ دوري احتياطي في الذاكرة المحلية (لا نعلن الحفظ إن فشل بسبب امتلاء الذاكرة)
-          if (model.saveToLocalStorage()) {
+          // حفظ دوري احتياطي في الذاكرة المحلية (IndexedDB + localStorage) مع نسخة احتياطية دورية
+          const res = await model.saveLocal();
+          if (res.ok) {
             setIsSaved(true);
             window.electronAPI?.setUnsavedChanges(false);
           }
@@ -1236,7 +1247,8 @@ export default function App() {
     const cleanupFile = window.electronAPI.onFileOpened(({ filePath, content }: { filePath?: string; content: string }) => {
       try {
         const data = JSON.parse(content);
-        model.loadFromJSON(data);
+        const warnings = model.loadFromJSON(data);
+        if (warnings.length) alert('فُتح الملف مع ملاحظات:\n' + warnings.join('\n'));
         if (filePath) {
           setLastSavedPath(filePath);
           updateLastUsedSettings({ lastSavedPath: filePath });
