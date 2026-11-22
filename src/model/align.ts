@@ -50,7 +50,7 @@ export function objectBounds(o: ProjectObject): Box | null {
   } else if (o.type === 'dimension') {
     inc((o as DimensionObject).start);
     inc((o as DimensionObject).end);
-  } else if (o.type === 'symbol' || o.type === 'text') {
+  } else if (o.type === 'symbol' || o.type === 'text' || o.type === 'room') {
     inc({ x: (o as SymbolObject).x, y: (o as SymbolObject).y });
   } else if (o.type === 'route' || o.type === 'line') {
     (o as RouteObject | LineObject).points.forEach((p) => inc(p));

@@ -17,6 +17,7 @@ import { RouteProperties } from './properties/RouteProperties.tsx';
 import { TextProperties } from './properties/TextProperties.tsx';
 import { ProjectSummary } from './properties/ProjectSummary.tsx';
 import { LineProperties } from './properties/LineProperties.tsx';
+import { RoomProperties } from './properties/RoomProperties.tsx';
 
 // إعادة تصدير للتوافق مع أي استيراد سابق
 export { PrecisionNumberInput } from './properties/inputs.tsx';
@@ -158,6 +159,10 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
 
   if (selectedObject?.type === 'text') {
     return <TextProperties {...ctx} />;
+  }
+
+  if (selectedObject?.type === 'room') {
+    return <RoomProperties {...ctx} />;
   }
 
   return <ProjectSummary {...ctx} />;

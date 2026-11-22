@@ -90,6 +90,7 @@ function boxOf(o: ProjectObject, walls: Map<string, WallObject>): Box | null {
       return host ? boxOf(host, walls) : null;
     }
     case 'symbol':
+    case 'room':
     case 'text': {
       const s = o as SymbolObject | TextObject;
       return { minX: s.x, minY: s.y, maxX: s.x, maxY: s.y };

@@ -37,6 +37,7 @@ import {
   Info,
   X,
   Type,
+  LayoutGrid,
 } from 'lucide-react';
 import { ToolMode, CadEngine } from '../engine/renderer.ts';
 import { SnapOptions } from '../engine/snap.ts';
@@ -515,6 +516,21 @@ export const LeftToolbar: React.FC<LeftToolbarProps> = ({
         >
           <Shapes size={17} />
           <span className="text-[8px] mt-0.5 font-medium">مساحة</span>
+        </button>
+
+        {/* كشف الغرف المغلقة تلقائياً (بطاقة اسم ومساحة لكل غرفة) */}
+        <button
+          data-testid="detect-rooms"
+          onClick={() => {
+            if (!engine) return;
+            const n = engine.detectRooms();
+            if (n === 0) alert('لم تُعثر على غرف مغلقة جديدة. تأكد أن الجدران المحيطة بكل غرفة متصلة.');
+          }}
+          className="w-11 h-10 rounded-xl flex flex-col items-center justify-center transition-all relative text-neutral-400 hover:text-emerald-300 hover:bg-neutral-800"
+          title="كشف الغرف تلقائياً — يضيف بطاقة اسم ومساحة صافية لكل غرفة مغلقة (rooms)"
+        >
+          <LayoutGrid size={17} />
+          <span className="text-[8px] mt-0.5 font-medium">الغرف</span>
         </button>
 
         {/* أداة المعايرة */}
