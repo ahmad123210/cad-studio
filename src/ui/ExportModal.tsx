@@ -130,6 +130,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   const [northAngle, setNorthAngle] = useState<number>(0);
   const [lineWeights, setLineWeights] = useState<Record<string, number>>({});
   const [previewInfo, setPreviewInfo] = useState<{ scale: number; fits: boolean } | null>(null);
+  const [imageDpi, setImageDpi] = useState(300);
   // الشركة والشعار والمراجعات والمناظير وكل اللوحات
   const [companyName, setCompanyName] = useState('');
   const [logoDataUrl, setLogoDataUrl] = useState<string>('');
@@ -354,11 +355,23 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   const handleExportImage = async (format: 'png' | 'jpeg') => {
     if (!engine) return;
     try {
-      await ExportEngine.exportImage(engine, model, exportOptions, format);
-      setExportSuccessMsg(`تم تصدير الصورة بدقة 300 DPI (${format.toUpperCase()}) بنجاح!`);
+      const dpi = await ExportEngine.exportImage(engine, model, exportOptions, format, imageDpi);
+      setExportSuccessMsg(`تم تصدير الصورة بدقة ${dpi} DPI (${format.toUpperCase()}) بنجاح!${dpi < imageDpi ? ' (خُفّضت الدقة لحدود المتصفح)' : ''}`);
       setTimeout(() => setExportSuccessMsg(null), 4000);
     } catch (err) {
       alert('حدث خطأ أثناء تصدير الصورة: ' + (err as Error).message);
+    }
+  };
+
+  // تصدير SVG متجه بالمقياس الحقيقي
+  const handleExportSVG = () => {
+    if (!engine) return;
+    try {
+      ExportEngine.exportSVG(engine, model, exportOptions);
+      setExportSuccessMsg('تم تصدير المخطط كملف SVG متجه بالمقاس الحقيقي');
+      setTimeout(() => setExportSuccessMsg(null), 4000);
+    } catch (err) {
+      alert('حدث خطأ أثناء تصدير SVG: ' + (err as Error).message);
     }
   };
 
@@ -536,13 +549,36 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                   <span>طباعة (Print)</span>
                 </button>
 
+                <span className="flex items-center rounded-lg border border-neutral-700 overflow-hidden">
+                  <button
+                    onClick={() => handleExportImage('png')}
+                    className="px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 font-medium transition-colors flex items-center gap-1.5"
+                    title="تحميل كصورة عالية الدقة للواتساب والمواقع"
+                  >
+                    <ImageIcon size={14} />
+                    <span>صورة PNG</span>
+                  </button>
+                  <select
+                    data-testid="image-dpi"
+                    value={imageDpi}
+                    onChange={(e) => setImageDpi(Number(e.target.value))}
+                    className="bg-neutral-900 text-neutral-300 px-1.5 py-1.5 text-[11px] outline-none border-r border-neutral-700"
+                    title="دقة الصورة"
+                  >
+                    {[150, 300, 600].map((d) => (
+                      <option key={d} value={d}>{d} DPI</option>
+                    ))}
+                  </select>
+                </span>
+
                 <button
-                  onClick={() => handleExportImage('png')}
+                  data-testid="export-svg"
+                  onClick={handleExportSVG}
                   className="px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded-lg font-medium transition-colors flex items-center gap-1.5 border border-neutral-700"
-                  title="تحميل كصورة عالية الدقة للواتساب والمواقع"
+                  title="ملف متجه بالمقاس الحقيقي (Illustrator / Inkscape / المتصفح)"
                 >
-                  <ImageIcon size={14} />
-                  <span>صورة PNG عالية الدقة</span>
+                  <FileCode2 size={14} />
+                  <span>SVG متجه</span>
                 </button>
 
                 <button

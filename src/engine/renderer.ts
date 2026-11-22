@@ -70,7 +70,7 @@ import {
 export type { EditCommandKind } from './tools/editCommands.ts';
 import { commitWallWithLengthImpl, finishRouteImpl, finishCalibrationImpl } from './tools/drawingTools.ts';
 import { onGroupDragStartImpl, onGroupDragMoveImpl, onGroupDragEndImpl, selectSimilarImpl } from './interaction/groupDrag.ts';
-import { getDrawingBoundsImpl, exportDrawingImageDataURLImpl } from './export/exportImage.ts';
+import { getDrawingBoundsImpl, exportDrawingImageDataURLImpl, exportVectorPrimsImpl } from './export/exportImage.ts';
 import { bindEventsImpl, processPointerMoveImpl } from './interaction/pointerEvents.ts';
 import { handleKeyDownImpl, handleKeyUpImpl } from './interaction/keyboard.ts';
 import { onViewTransformChangedImpl, touchToLocalImpl, getPinchMetricsImpl, beginPinchImpl, updatePinchImpl, shouldUseFastGestureImpl, beginGestureImpl, scheduleGestureFrameImpl, applyGestureTransformsImpl, scheduleGestureEndImpl, endGestureImpl, flushGestureImpl } from './interaction/gestures.ts';
@@ -981,6 +981,11 @@ export class CadEngine {
     lineWeightsPx?: Record<string, number>;
   }): string {
     return exportDrawingImageDataURLImpl.call(this, { ...options, output: 'dataUrl' }) as string;
+  }
+
+  /** عناصر الرسم المتجهية (لتصدير SVG) بإحداثيات العالم */
+  public exportVectorPrims(opts: Parameters<typeof exportVectorPrimsImpl>[0]) {
+    return exportVectorPrimsImpl.call(this, opts);
   }
 
   /** مثل exportDrawingImageDataURL لكن يعيد Canvas (للطباعة بمقياس حقيقي على ورق كبير) */
