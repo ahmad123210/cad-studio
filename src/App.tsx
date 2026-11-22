@@ -1560,6 +1560,12 @@ export default function App() {
         isOpen={isScheduleBOQOpen}
         onClose={() => setIsScheduleBOQOpen(false)}
         onDetectRooms={() => engineRef.current?.detectRooms() ?? 0}
+        onExportExcel={(report) => {
+          // exceljs تُحمَّل عند أول تصدير فقط
+          import('./engine/export/boqExcel.ts')
+            .then((m) => m.downloadBoqExcel(report, model.getQuantitySettings().prices, model.getMeta().name))
+            .catch((err) => alert(`تعذّر إنشاء ملف Excel: ${err?.message || err}`));
+        }}
       />
 
       <BackgroundImageModal

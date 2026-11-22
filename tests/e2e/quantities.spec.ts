@@ -62,3 +62,15 @@ test('fence tab shows per-segment detail', async ({ page }) => {
   await expect(t.locator('tbody tr').nth(1)).toContainText('36.00');
   await expect(t.locator('tfoot')).toContainText('136.00');
 });
+
+test('Excel export downloads a real .xlsx (lazy-loaded)', async ({ page }) => {
+  await openFresh(page, { ...emptyProject(), objects });
+  await page.getByText('جدول الكميات', { exact: false }).first().click();
+  const [download] = await Promise.all([page.waitForEvent('download', { timeout: 30000 }), page.getByTestId('boq-export-excel').click()]);
+  // نتحقق من المحتوى (اسم الملف في متصفح الاختبار قد يظهر «download» لروابط blob بعد تحميل كسول)
+  const chunks: Buffer[] = [];
+  for await (const c of await download.createReadStream()) chunks.push(c as Buffer);
+  const buf = Buffer.concat(chunks);
+  expect(buf.subarray(0, 2).toString()).toBe('PK'); // ملف xlsx = أرشيف zip
+  expect(buf.length).toBeGreaterThan(5000);
+});
