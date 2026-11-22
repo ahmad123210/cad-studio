@@ -91,6 +91,7 @@ import { planAlign, ALIGN_LABELS, type AlignMode } from '../model/align.ts';
 import './tools/drawCommands.ts';
 import './tools/structureCommands.ts';
 import './tools/blockCommands.ts';
+import './tools/moreEditCommands.ts';
 
 
 export type ToolMode =
