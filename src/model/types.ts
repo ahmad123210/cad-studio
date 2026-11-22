@@ -277,6 +277,12 @@ export interface PrintSettings {
   logoDataUrl?: string;
   /** جدول المراجعات */
   revisions?: { rev: string; date: string; description: string }[];
+  /** اسم الشركة/المكتب */
+  companyName?: string;
+  /** المناظير على اللوحة (فارغ = منظور واحد لكامل اللوحة الحالية) */
+  views?: { id: string; title: string; sheetId?: string; region?: { minX: number; minY: number; maxX: number; maxY: number }; scale: number }[];
+  /** طباعة كل اللوحات في ملف واحد */
+  allSheets?: boolean;
 }
 
 export type ProjectObject =
