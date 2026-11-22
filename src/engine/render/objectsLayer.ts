@@ -49,6 +49,7 @@ import type { CadEngine, ToolMode, SketchUpCalibrationEvent, WallDrawingState, E
 import { BoxRect, isObjectInBox, pointInBox, segmentIntersectsBox } from '../geometry/selectionBox.ts';
 import { buildEndpointIndex, computeWallPolygon } from '../geometry/wallJoins.ts';
 import { renderBatchedImpl, countVisibleUpTo, BATCH_RENDER_THRESHOLD, BatchInput } from './batchLayer.ts';
+import { computeOpeningTypes } from '../../model/quantities.ts';
 
 export function renderObjectsLayerImpl(this: CadEngine): void {
     // أي إعادة بناء حقيقية تُنهي وضع اللقطة المؤقتة وتعيد الطبقة لتحويل الهوية
@@ -605,6 +606,35 @@ export function renderObjectsLayerImpl(this: CadEngine): void {
         textObj.color || layer?.color || '#38bdf8',
         layer?.opacity ?? 1
       );
+    }
+
+    // 7.4 رموز الأبواب والشبابيك (D1، W1…) — اختيارية من نافذة الكميات
+    const qs = this.model.getQuantitySettings();
+    if (qs.showOpeningTags) {
+      const codeById: Record<string, string> = {};
+      for (const t of computeOpeningTypes(objects, pixelsPerMeter, qs)) t.ids.forEach((id) => (codeById[id] = t.code));
+      const fs = Math.max(8, Math.min(16, Math.round(10 * zoom)));
+      for (const o of objects) {
+        if (o.type !== 'door' && o.type !== 'window') continue;
+        const op = o as DoorObject | WindowObject;
+        const w = wallById.get(op.wallId);
+        const lyr = layerById.get(op.layerId);
+        if (!w || (lyr && !lyr.visible) || !wallInView(w)) continue;
+        const dx = w.end.x - w.start.x;
+        const dy = w.end.y - w.start.y;
+        const L = Math.hypot(dx, dy) || 1;
+        const c = { x: w.start.x + dx * op.position, y: w.start.y + dy * op.position };
+        const off = (w.thickness || 20) / 2 + 12 / zoom;
+        const p = this.camera.worldToScreen({ x: c.x + (dy / L) * off, y: c.y - (dx / L) * off });
+        const color = o.type === 'door' ? '#f59e0b' : '#14b8a6';
+        const label = new Konva.Text({ text: codeById[o.id] || '', fontSize: fs, fontFamily: 'JetBrains Mono, monospace', fontStyle: 'bold', fill: color, listening: false });
+        const pad = 2;
+        this.objectsLayer.add(
+          new Konva.Rect({ x: p.x - label.width() / 2 - pad, y: p.y - label.height() / 2 - pad, width: label.width() + pad * 2, height: label.height() + pad * 2, fill: isDark ? '#0f172a' : '#ffffff', stroke: color, strokeWidth: 1, cornerRadius: 3, listening: false })
+        );
+        label.position({ x: p.x - label.width() / 2, y: p.y - label.height() / 2 });
+        this.objectsLayer.add(label);
+      }
     }
 
     // 7.5 بطاقات الغرف (الاسم والمساحة)
