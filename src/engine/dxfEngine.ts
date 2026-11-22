@@ -29,6 +29,7 @@ import {
 import { getSymbolById } from '../symbols/registry.ts';
 import { buildRoomGraph, findRoomAt, type RoomGraph } from '../model/rooms.ts';
 import { stairsGeometry } from '../model/stairs.ts';
+import { vectorizeSymbol, type VPrim } from './export/vectorize.ts';
 
 export interface DxfExportOptions {
   version?: 'R12' | 'AC1015'; // R12 = AC1009 (Universal Compatibility), AC1015 = AutoCAD 2000+
@@ -134,11 +135,13 @@ export function exportProjectToDxf(
   };
 
   const lines: string[] = [];
+  // وجهة الكتابة: الملف الرئيسي، أو مخزن مؤقت لتعريفات الكتل (تُدرج لاحقاً في قسم BLOCKS)
+  let out: string[] = lines;
 
   // دالة مساعدة لكتابة زوج (Code, Value) بصيغة قياسية بدون مسافات شاذة
   const pushTag = (code: number, val: string | number): void => {
-    lines.push(String(code));
-    lines.push(String(val));
+    out.push(String(code));
+    out.push(String(val));
   };
 
   let handleCounter = 0x30;
@@ -165,6 +168,18 @@ export function exportProjectToDxf(
     const l = layers.find((lay) => lay.id === layerId);
     return getSafeCadLayerName(layerId, l?.name);
   };
+
+  // ─── كتل الرموز: كتلة لكل نوع رمز مستخدم بشكله الحقيقي (من رسم لوحة الرسم) ───
+  const blockName = (kind: string) => `SYM_${kind.replace(/[^A-Za-z0-9_]/g, '_').toUpperCase()}`;
+  const symbolBlocks: { kind: string; name: string; prims: VPrim[]; recordHandle: string }[] = [];
+  if (options.includeSymbols !== false) {
+    const kinds = new Set(filteredObjects.filter((o) => o.type === 'symbol').map((o) => (o as SymbolObject).symbolKind));
+    for (const kind of kinds) {
+      const prims = vectorizeSymbol(kind, '#000000');
+      if (prims.length) symbolBlocks.push({ kind, name: blockName(kind), prims, recordHandle: nextHandle() });
+    }
+  }
+  const blockByKind = new Map(symbolBlocks.map((b) => [b.kind, b]));
 
   // ==========================================
   // 1. قسم HEADER
@@ -195,6 +210,9 @@ export function exportProjectToDxf(
   pushTag(70, 2); // 2 = Decimal
   pushTag(9, '$DIMSCALE');
   pushTag(40, 1.0);
+  // مقياس أنماط الخطوط ليتناسب مع وحدة الرسم (الأنماط معرّفة بالمتر)
+  pushTag(9, '$LTSCALE');
+  pushTag(40, unitFactor);
 
   pushTag(0, 'ENDSEC'); // نهاية قسم HEADER
 
@@ -264,7 +282,7 @@ export function exportProjectToDxf(
     pushTag(5, '5');
     pushTag(100, 'AcDbSymbolTable');
   }
-  pushTag(70, 3);
+  pushTag(70, 5);
 
   // خط متصل CONTINUOUS
   pushTag(0, 'LTYPE');
@@ -311,6 +329,26 @@ export function exportProjectToDxf(
   pushTag(40, 0.25);
   pushTag(49, 0.15);
   pushTag(49, -0.1);
+
+  // خط منقط DOT ونقطة-شرطة DASHDOT (للمسارات المنقطة وخطوط الحريق)
+  for (const [name, desc, pattern] of [
+    ['DOT', 'Dot . . . .', [0.0, -0.1]],
+    ['DASHDOT', 'Dash dot __ . __ .', [0.3, -0.1, 0.0, -0.1]],
+  ] as [string, string, number[]][]) {
+    pushTag(0, 'LTYPE');
+    if (version === 'AC1015') {
+      pushTag(5, nextHandle());
+      pushTag(100, 'AcDbSymbolTableRecord');
+      pushTag(100, 'AcDbLinetypeTableRecord');
+    }
+    pushTag(2, name);
+    pushTag(70, 0);
+    pushTag(3, desc);
+    pushTag(72, 65);
+    pushTag(73, pattern.length);
+    pushTag(40, pattern.reduce((acc, v) => acc + Math.abs(v), 0));
+    for (const v of pattern) pushTag(49, v);
+  }
   pushTag(0, 'ENDTAB');
 
   // 2.4 جدول الطبقات LAYER
@@ -401,7 +439,7 @@ export function exportProjectToDxf(
     pushTag(2, 'BLOCK_RECORD');
     pushTag(5, '1');
     pushTag(100, 'AcDbSymbolTable');
-    pushTag(70, 2);
+    pushTag(70, 2 + symbolBlocks.length);
 
     pushTag(0, 'BLOCK_RECORD');
     pushTag(5, '1F');
@@ -414,6 +452,13 @@ export function exportProjectToDxf(
     pushTag(100, 'AcDbSymbolTableRecord');
     pushTag(100, 'AcDbBlockTableRecord');
     pushTag(2, '*PAPER_SPACE');
+    for (const b of symbolBlocks) {
+      pushTag(0, 'BLOCK_RECORD');
+      pushTag(5, b.recordHandle);
+      pushTag(100, 'AcDbSymbolTableRecord');
+      pushTag(100, 'AcDbBlockTableRecord');
+      pushTag(2, b.name);
+    }
     pushTag(0, 'ENDTAB');
   }
 
@@ -464,6 +509,8 @@ export function exportProjectToDxf(
     pushTag(8, '0');
     pushTag(100, 'AcDbBlockEnd');
   }
+  // موضع تعريفات كتل الرموز (تُكتب بعد تعريف دوال الكائنات أدناه)
+  const blocksInsertAt = lines.length;
 
   pushTag(0, 'ENDSEC'); // نهاية قسم BLOCKS
 
@@ -565,9 +612,11 @@ export function exportProjectToDxf(
     color?: number
   ) => {
     // تنظيف النص من أسطر جديدة لمنع تدمير بنية DXF
+    // الأحرف غير اللاتينية (العربية) بصيغة \U+XXXX التي يفهمها AutoCAD وبرامج CAD أياً كانت ترميزات الملف
     const safeText = (text || '')
       .replace(/[\r\n\t]+/g, ' ')
-      .trim();
+      .trim()
+      .replace(/[^\x20-\x7E]/g, (ch) => `\\U+${ch.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')}`);
     if (!safeText) return;
 
     pushTag(0, 'TEXT');
@@ -602,7 +651,8 @@ export function exportProjectToDxf(
     points: Point[],
     closed: boolean,
     layerName: string,
-    color?: number
+    color?: number,
+    linetype?: string
   ) => {
     if (!points || points.length < 2) return;
 
@@ -612,6 +662,7 @@ export function exportProjectToDxf(
       pushTag(5, nextHandle());
       pushTag(100, 'AcDbEntity');
       pushTag(8, layerName);
+      if (linetype) pushTag(6, linetype);
       if (color) pushTag(62, color);
       pushTag(100, 'AcDbPolyline');
       pushTag(90, points.length);
@@ -624,6 +675,7 @@ export function exportProjectToDxf(
       // في AutoCAD R12 (AC1009): نكتب POLYLINE مع كتل VERTEX و SEQEND
       pushTag(0, 'POLYLINE');
       pushTag(8, layerName);
+      if (linetype) pushTag(6, linetype);
       if (color) pushTag(62, color);
       pushTag(66, 1); // 1 = يتبعه عناصر VERTEX
       pushTag(70, closed ? 1 : 0);
@@ -642,6 +694,80 @@ export function exportProjectToDxf(
       pushTag(0, 'SEQEND');
       pushTag(8, layerName);
     }
+  };
+
+  // ─── كتابة تعريفات كتل الرموز وإدراجها في قسم BLOCKS ───
+  if (symbolBlocks.length) {
+    const blockLines: string[] = [];
+    out = blockLines;
+    for (const b of symbolBlocks) {
+      pushTag(0, 'BLOCK');
+      if (version === 'AC1015') {
+        pushTag(5, nextHandle());
+        pushTag(330, b.recordHandle);
+        pushTag(100, 'AcDbEntity');
+        pushTag(8, '0');
+        pushTag(100, 'AcDbBlockBegin');
+      } else {
+        pushTag(8, '0');
+      }
+      pushTag(2, b.name);
+      pushTag(70, 0);
+      pushTag(10, 0.0);
+      pushTag(20, 0.0);
+      pushTag(30, 0.0);
+      pushTag(3, b.name);
+      if (version === 'AC1015') pushTag(1, '');
+      // عناصر الكتلة على الطبقة 0 (تأخذ طبقة ولون الإدراج ByBlock)
+      for (const pr of b.prims) {
+        if (pr.kind === 'poly') writePolyline(pr.pts, pr.closed, '0');
+        else if (pr.kind === 'circle') writeCircle(pr.c.x, pr.c.y, pr.r / pixelsPerMeter, '0');
+        else if (pr.kind === 'text') writeText(pr.p.x, pr.p.y, pr.text, Math.max(0.05, pr.size / pixelsPerMeter), '0', -pr.rotation, pr.anchor === 'middle');
+      }
+      pushTag(0, 'ENDBLK');
+      if (version === 'AC1015') {
+        pushTag(5, nextHandle());
+        pushTag(330, b.recordHandle);
+        pushTag(100, 'AcDbEntity');
+        pushTag(8, '0');
+        pushTag(100, 'AcDbBlockEnd');
+      } else {
+        pushTag(8, '0');
+      }
+    }
+    out = lines;
+    lines.splice(blocksInsertAt, 0, ...blockLines);
+  }
+
+  /** إدراج كتلة رمز (INSERT) بموضعه ودورانه ومقياسه */
+  const writeInsert = (name: string, x: number, y: number, scale: number, rotationDeg: number, layerName: string) => {
+    pushTag(0, 'INSERT');
+    if (version === 'AC1015') {
+      pushTag(5, nextHandle());
+      pushTag(100, 'AcDbEntity');
+      pushTag(8, layerName);
+      pushTag(100, 'AcDbBlockReference');
+    } else {
+      pushTag(8, layerName);
+    }
+    pushTag(2, name);
+    pushTag(10, toDxfX(x));
+    pushTag(20, toDxfY(y));
+    pushTag(30, '0.0');
+    pushTag(41, scale);
+    pushTag(42, scale);
+    pushTag(43, scale);
+    // محور Y معكوس في CAD: الدوران مع عقارب الساعة على الشاشة = عكسها في CAD
+    pushTag(50, ((-rotationDeg % 360) + 360) % 360);
+  };
+
+  /** نمط الخط في CAD حسب نمط العنصر/نوع المسار */
+  const linetypeFor = (style?: string, routeKind?: string): string | undefined => {
+    if (style === 'dashed') return 'DASHED';
+    if (style === 'dotted') return 'DOT';
+    if (routeKind === 'drainage') return 'DASHED';
+    if (routeKind === 'fire') return 'DASHDOT';
+    return undefined;
   };
 
   // تفريغ جميع الكائنات داخل قسم ENTITIES
@@ -758,7 +884,7 @@ export function exportProjectToDxf(
     // ================= 3.5 الخطوط الحرة (Linework / خطوط DXF المستوردة) =================
     else if (obj.type === 'line') {
       const ln = obj as LineObject;
-      if (ln.points && ln.points.length >= 2) writePolyline(ln.points, Boolean(ln.closed), layerName);
+      if (ln.points && ln.points.length >= 2) writePolyline(ln.points, Boolean(ln.closed), layerName, undefined, linetypeFor(ln.lineStyle));
     }
 
     // ================= 3.6 الأعمدة والدرج =================
@@ -789,8 +915,8 @@ export function exportProjectToDxf(
     else if (obj.type === 'route' && options.includeRoutes !== false) {
       const route = obj as RouteObject;
       if (route.points && route.points.length >= 2) {
-        // كتابة البولاي لاين للمسار
-        writePolyline(route.points, false, layerName);
+        // كتابة البولاي لاين للمسار (بنمط خطه: متقطع للصرف، نقطة-شرطة للحريق...)
+        writePolyline(route.points, false, layerName, undefined, linetypeFor(route.lineStyle, route.routeKind));
 
         // كتابة وسم التوصيف إذا وجد
         if (route.label) {
@@ -801,6 +927,12 @@ export function exportProjectToDxf(
     }
 
     // ================= 5. الرموز والفرش المعماري والأجهزة (Symbols & Furniture) =================
+    else if (obj.type === 'symbol' && options.includeSymbols !== false && blockByKind.has((obj as SymbolObject).symbolKind)) {
+      // الرمز كإدراج لكتلته (شكله الحقيقي)، مع تسميته إن وُجدت
+      const sym = obj as SymbolObject;
+      writeInsert(blockByKind.get(sym.symbolKind)!.name, sym.x, sym.y, sym.scale || 1, sym.rotation || 0, layerName);
+      if (sym.label) writeText(sym.x, sym.y + 24 * (sym.scale || 1), sym.label, 0.15, layerName, 0, true);
+    }
     else if (obj.type === 'symbol' && options.includeSymbols !== false) {
       const sym = obj as SymbolObject;
       const def = getSymbolById(sym.symbolKind);
@@ -929,6 +1061,7 @@ export function exportProjectToDxf(
     // القاموس الجذري Root Dictionary
     pushTag(0, 'DICTIONARY');
     pushTag(5, 'C');
+    pushTag(330, '0'); // القاموس الجذري بلا مالك
     pushTag(100, 'AcDbDictionary');
     pushTag(281, 1);
     pushTag(3, 'ACAD_GROUP');
@@ -937,6 +1070,7 @@ export function exportProjectToDxf(
     // قاموس المجموعات ACAD_GROUP
     pushTag(0, 'DICTIONARY');
     pushTag(5, 'D');
+    pushTag(330, 'C'); // مالكه القاموس الجذري
     pushTag(100, 'AcDbDictionary');
     pushTag(281, 1);
 
