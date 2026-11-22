@@ -86,7 +86,7 @@ export function pickTrimTarget(all: ProjectObject[], p: Point, tolerance: number
 }
 
 /** إعادة توزيع الفتحات والرموز الملتصقة على الجدار بعد تغيير طرفيه/قسمته */
-function remapHosted(all: ProjectObject[], wall: WallObject, pieces: { id: string; t0: number; t1: number }[], plan: EditPlan): void {
+export function remapHosted(all: ProjectObject[], wall: WallObject, pieces: { id: string; t0: number; t1: number }[], plan: EditPlan): void {
   const len = Math.hypot(wall.end.x - wall.start.x, wall.end.y - wall.start.y);
   for (const o of all) {
     const isOpening = (o.type === 'door' || o.type === 'window') && (o as DoorObject).wallId === wall.id;

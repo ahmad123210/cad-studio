@@ -34,6 +34,7 @@ import { AreaBadge } from './ui/AreaBadge.tsx';
 import { SymbolsCatalogModal } from './ui/SymbolsCatalogModal.tsx';
 import { ScheduleBOQModal } from './ui/ScheduleBOQModal.tsx';
 import { BlocksModal } from './ui/BlocksModal.tsx';
+import { copyProps, planPasteProps, type PropsSnapshot } from './model/matchProps.ts';
 import { RouteControlBar } from './ui/RouteControlBar.tsx';
 // تحميل كسول: نافذتا التصدير (jsPDF ≈630KB) وDXF تُحمَّلان عند أول فتح فقط
 const ExportModal = React.lazy(() => import('./ui/ExportModal.tsx').then((m) => ({ default: m.ExportModal })));
@@ -402,6 +403,8 @@ export default function App() {
   const [isSymbolsCatalogOpen, setIsSymbolsCatalogOpen] = useState(false);
   const [isScheduleBOQOpen, setIsScheduleBOQOpen] = useState(false);
   const [isBlocksOpen, setIsBlocksOpen] = useState(false);
+  // حافظة الخصائص (نسخ الخصائص من عنصر ولصقها على غيره)
+  const [propsClipboard, setPropsClipboard] = useState<PropsSnapshot | null>(null);
   // فتح مكتبة الكتل من شريط الأوامر (الأمر blocks يرسل هذا الحدث)
   useEffect(() => {
     const open = () => setIsBlocksOpen(true);
@@ -1652,6 +1655,18 @@ export default function App() {
             if (err) alert(err);
           }}
           onOpenBlocks={() => setIsBlocksOpen(true)}
+          canPasteProps={Boolean(propsClipboard)}
+          onCopyProps={() => {
+            const src = contextMenu.targetObjectId ? model.getObjectById(contextMenu.targetObjectId) : undefined;
+            if (src) setPropsClipboard(copyProps(src));
+          }}
+          onPasteProps={() => {
+            if (!propsClipboard) return;
+            const ids = selectedObjectIds.length > 0 ? selectedObjectIds : contextMenu.targetObjectId ? [contextMenu.targetObjectId] : [];
+            const targets = ids.map((id) => model.getObjectById(id)).filter((o): o is ProjectObject => Boolean(o));
+            const plan = planPasteProps(targets, propsClipboard);
+            if (plan.updates.length) model.applyEdits(plan, `لصق الخصائص على ${plan.updates.length} عنصر`);
+          }}
           onAlign={(mode) => {
             const err = engineRef.current?.alignSelection(mode);
             if (err) alert(err);

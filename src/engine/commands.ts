@@ -61,6 +61,12 @@ export const COMMANDS: CadCommand[] = [
   { id: 'column', label: 'عمود', aliases: ['column', 'col', 'عمود', 'أعمدة'], defaultCodes: [], remappable: true, run: edit('column') },
   { id: 'stairs', label: 'درج', aliases: ['stairs', 'stair', 'st', 'درج'], defaultCodes: [], remappable: true, run: edit('stairs') },
   { id: 'polygon', label: 'مضلع منتظم', aliases: ['polygon', 'pol', 'مضلع'], defaultCodes: [], remappable: true, run: edit('polygon') },
+  { id: 'fillet', label: 'وصل ركن', aliases: ['fillet', 'f', 'وصل', 'وصل ركن'], defaultCodes: [], remappable: true, run: edit('fillet') },
+  { id: 'chamfer', label: 'شطف ركن', aliases: ['chamfer', 'cha', 'شطف'], defaultCodes: [], remappable: true, run: edit('chamfer') },
+  { id: 'break', label: 'كسر', aliases: ['break', 'br', 'كسر'], defaultCodes: [], remappable: true, run: edit('break') },
+  { id: 'join', label: 'دمج', aliases: ['join', 'j', 'دمج'], defaultCodes: [], remappable: true, run: edit('join') },
+  { id: 'stretch', label: 'تمطيط', aliases: ['stretch', 'str', 'تمطيط', 'مط'], defaultCodes: [], remappable: true, run: edit('stretch') },
+  { id: 'dimchain', label: 'أبعاد متسلسلة', aliases: ['dimchain', 'dch', 'dimcontinue', 'أبعاد متسلسلة', 'ابعاد متسلسلة'], defaultCodes: [], remappable: true, run: edit('dimchain') },
   {
     id: 'blocks',
     label: 'مكتبة الكتل',

@@ -37,6 +37,8 @@ import {
   AlignHorizontalDistributeCenter,
   AlignVerticalDistributeCenter,
   Boxes,
+  Pipette,
+  Paintbrush,
 } from 'lucide-react';
 import type { EditCommandKind } from '../engine/renderer.ts';
 import { ALIGN_LABELS, type AlignMode } from '../model/align.ts';
@@ -76,6 +78,10 @@ export interface ContextMenuProps {
   onAlign?: (mode: AlignMode) => void;
   /** فتح مكتبة الكتل (لحفظ التحديد ككتلة) */
   onOpenBlocks?: () => void;
+  /** نسخ خصائص العنصر المنقور / لصقها على المحدد */
+  onCopyProps?: () => void;
+  onPasteProps?: () => void;
+  canPasteProps?: boolean;
 }
 
 export const ContextMenu: React.FC<ContextMenuProps> = ({
@@ -99,6 +105,9 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
   onEditCommand,
   onAlign,
   onOpenBlocks,
+  onCopyProps,
+  onPasteProps,
+  canPasteProps,
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -129,7 +138,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
 
   // منع خروج القائمة خارج أبعاد الشاشة
   const menuWidth = 210;
-  const menuHeight = targetObject || selectedCount > 0 ? (onEditCommand ? (onAlign && selectedCount >= 2 ? 710 : 660) : 320) : 220;
+  const menuHeight = targetObject || selectedCount > 0 ? (onEditCommand ? (onAlign && selectedCount >= 2 ? 800 : 750) : 360) : 220;
   const x = Math.min(position.x, window.innerWidth - menuWidth - 10);
   const y = Math.min(position.y, window.innerHeight - menuHeight - 10);
 
@@ -379,7 +388,63 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
                   <span>إزاحة متوازية للجدار</span>
                 </button>
               )}
+              {/* أدوات تحرير إضافية: وصل/شطف/كسر/دمج/تمطيط/أبعاد متسلسلة */}
+              <div className="grid grid-cols-2 gap-0.5" data-testid="ctx-more-edit">
+                {(
+                  [
+                    ['fillet', 'وصل ركن', targetObject?.type === 'wall'],
+                    ['chamfer', 'شطف ركن', targetObject?.type === 'wall'],
+                    ['break', 'كسر', targetObject?.type === 'wall' || targetObject?.type === 'line' || targetObject?.type === 'route'],
+                    ['join', 'دمج المحدد', selectedCount >= 2],
+                    ['stretch', 'تمطيط', true],
+                    ['dimchain', 'أبعاد الجدار', targetObject?.type === 'wall'],
+                  ] as const
+                )
+                  .filter(([, , show]) => show)
+                  .map(([kind, label]) => (
+                    <button
+                      key={kind}
+                      onClick={() => {
+                        onEditCommand(kind);
+                        onClose();
+                      }}
+                      className="px-2.5 py-1.5 rounded-lg hover:bg-neutral-800 text-right cursor-pointer text-neutral-200"
+                    >
+                      {label}
+                    </button>
+                  ))}
+              </div>
             </>
+          )}
+
+          {/* نسخ الخصائص ولصقها */}
+          {targetObject && onCopyProps && (
+            <div className="grid grid-cols-2 gap-0.5 border-t border-neutral-800 pt-1 mt-1">
+              <button
+                data-testid="ctx-copy-props"
+                onClick={() => {
+                  onCopyProps();
+                  onClose();
+                }}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-neutral-800 text-right cursor-pointer"
+              >
+                <Pipette size={13} className="text-amber-400" />
+                <span>نسخ الخصائص</span>
+              </button>
+              <button
+                data-testid="ctx-paste-props"
+                disabled={!canPasteProps}
+                onClick={() => {
+                  onPasteProps?.();
+                  onClose();
+                }}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-neutral-800 text-right cursor-pointer disabled:opacity-35 disabled:cursor-not-allowed"
+                title={selectedCount > 1 ? 'على كل العناصر المحددة' : 'على هذا العنصر'}
+              >
+                <Paintbrush size={13} className="text-amber-400" />
+                <span>لصق الخصائص</span>
+              </button>
+            </div>
           )}
 
           {canToggleLength && onToggleLength && (
