@@ -1559,6 +1559,7 @@ export default function App() {
         model={model}
         isOpen={isScheduleBOQOpen}
         onClose={() => setIsScheduleBOQOpen(false)}
+        onDetectRooms={() => engineRef.current?.detectRooms() ?? 0}
       />
 
       <BackgroundImageModal
