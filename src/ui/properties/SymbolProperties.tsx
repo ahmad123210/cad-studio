@@ -71,6 +71,7 @@ import {
 } from '../../symbols/routes.ts';
 
 import { LabelInput, NoteTextarea, PrecisionNumberInput } from './inputs.tsx';
+import { CircuitFields } from './CircuitFields.tsx';
 import type { PanelContext } from './context.ts';
 
 export const SymbolProperties: React.FC<PanelContext> = (ctx) => {
@@ -327,6 +328,9 @@ export const SymbolProperties: React.FC<PanelContext> = (ctx) => {
               accentColorClass="focus:border-sky-500"
             />
           </div>
+
+          {/* الدائرة الكهربائية والحمل */}
+          <CircuitFields model={model} symbols={[symbol]} />
 
           {/* زاوية الدوران */}
           <div className="flex flex-col gap-2">
