@@ -134,7 +134,13 @@ export function exportDrawingImageDataURLImpl(this: CadEngine, options?: {
     customHeight?: number;
     /** سمة ألوان العناصر في الصورة المصدّرة (افتراضياً سمة الواجهة الحالية) */
     theme?: 'dark' | 'light';
-  }): string {
+    /** طباعة بمقياس حقيقي: مركز الإطار بإحداثيات العالم والتكبير (بكسل صورة لكل بكسل عالم) */
+    camera?: { centerX: number; centerY: number; zoom: number };
+    /** سماكة خط الطباعة لكل طبقة بالبكسل (في الصورة الناتجة) — الطبقات غير المذكورة تبقى كما هي */
+    lineWeightsPx?: Record<string, number>;
+    /** إرجاع Canvas مباشرة بدل DataURL (أسرع وأقل ذاكرة للصفحات الكبيرة) */
+    output?: 'dataUrl' | 'canvas';
+  }): string | HTMLCanvasElement {
     const opts = {
       pixelRatio: 2.5,
       includeGrid: false,
@@ -186,7 +192,10 @@ export function exportDrawingImageDataURLImpl(this: CadEngine, options?: {
       }
 
       // ضبط زاوية الرؤية حسب نمط التصدير
-      if (opts.boundsMode === 'drawing') {
+      if (opts.camera) {
+        const { centerX, centerY, zoom } = opts.camera;
+        this.camera.setState({ zoom, offsetX: this.stage.width() / 2 - centerX * zoom, offsetY: this.stage.height() / 2 - centerY * zoom });
+      } else if (opts.boundsMode === 'drawing') {
         const bounds = this.getDrawingBounds(opts.includeBackground);
         this.camera.fitBounds(bounds, this.stage.width(), this.stage.height(), opts.padding);
       }
@@ -195,8 +204,10 @@ export function exportDrawingImageDataURLImpl(this: CadEngine, options?: {
       this.renderBackgroundLayer();
       if (opts.includeGrid) this.renderGridLayer();
       this.renderObjectsLayer();
+      if (opts.lineWeightsPx && Object.keys(opts.lineWeightsPx).length > 0) applyPrintLineWeights(this, opts.lineWeightsPx);
 
       // التقاط اللوحة بدقة فائقة
+      if (opts.output === 'canvas') return this.stage.toCanvas({ pixelRatio: opts.pixelRatio });
       const dataUrl = this.stage.toDataURL({
         pixelRatio: opts.pixelRatio,
         mimeType: 'image/png',
@@ -223,3 +234,26 @@ export function exportDrawingImageDataURLImpl(this: CadEngine, options?: {
       this.render();
     }
   }
+
+/**
+ * سماكة خطوط الطباعة حسب الطبقة: كل شكل له حدّ (stroke) ينتمي لعنصر (عبر معرف العقدة أو أحد آبائها)
+ * تُضبط سماكته لتظهر بالقيمة المطلوبة في الصورة بغض النظر عن تحجيم مجموعته (الرموز مثلاً).
+ */
+function applyPrintLineWeights(engine: CadEngine, weights: Record<string, number>): void {
+  const layerOf = new Map(engine.model.getObjects().map((o) => [o.id, o.layerId]));
+  const layer = engine.objectsLayer;
+  layer.find('Shape').forEach((node) => {
+    const shape = node as Konva.Shape;
+    if (shape.getClassName() === 'Text' || !shape.stroke() || !shape.strokeEnabled()) return;
+    let cur: Konva.Node | null = shape;
+    let layerId: string | undefined;
+    while (cur && cur !== layer) {
+      layerId = layerOf.get(cur.id());
+      if (layerId) break;
+      cur = cur.getParent();
+    }
+    if (!layerId || weights[layerId] === undefined) return;
+    const sc = Math.abs(shape.getAbsoluteScale().x) || 1;
+    shape.strokeWidth(weights[layerId] / sc);
+  });
+}

@@ -261,6 +261,24 @@ export interface QuantitySettings {
   showOpeningTags?: boolean;
 }
 
+/** إعدادات الطباعة والخرطوشة — تُحفظ مع المشروع حتى لا تُعاد كتابتها في كل مرة */
+export interface PrintSettings {
+  paperFormat?: string;
+  orientation?: 'landscape' | 'portrait';
+  theme?: string;
+  /** 0 أو غير موجود = ملاءمة تلقائية لأقرب مقياس معياري */
+  printScale?: number;
+  northAngle?: number;
+  /** سماكة خط الطباعة لكل طبقة (مم) */
+  lineWeights?: Record<string, number>;
+  /** حقول الخرطوشة (اسم المشروع، العنوان، المهندس، الشركة...) */
+  titleBlock?: Record<string, string>;
+  /** شعار الشركة (صورة DataURL مصغّرة) */
+  logoDataUrl?: string;
+  /** جدول المراجعات */
+  revisions?: { rev: string; date: string; description: string }[];
+}
+
 export type ProjectObject =
   | RoomObject
   | LineObject
@@ -290,6 +308,8 @@ export interface ProjectData {
   activeSheetId?: string;
   /** إعدادات الكميات والأسعار (على مستوى المشروع، مشتركة بين اللوحات) */
   quantities?: QuantitySettings;
+  /** إعدادات الطباعة والخرطوشة */
+  printSettings?: PrintSettings;
   /** إصدار صيغة الملف (انظر model/schema.ts) */
   schemaVersion?: number;
   /** وقت آخر حفظ محلي (لمقارنة نسخ التخزين) */

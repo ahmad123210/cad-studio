@@ -37,6 +37,11 @@ import {
   PAPER_DIMENSIONS_MM,
 } from '../engine/exportEngine.ts';
 import { downloadDxfFile } from '../engine/dxfEngine.ts';
+import { STANDARD_SCALES } from '../engine/print/printLayout.ts';
+import type { PrintSettings } from '../model/types.ts';
+
+/** سماكات خطوط الطباعة المعيارية (مم) */
+const LINE_WEIGHTS_MM = [0.13, 0.18, 0.25, 0.35, 0.5, 0.7, 1.0];
 
 interface ExportModalProps {
   model: ProjectModel;
@@ -97,12 +102,76 @@ export const ExportModal: React.FC<ExportModalProps> = ({
 
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
+  // الطباعة بمقياس حقيقي (0 = ملاءمة تلقائية لأقرب مقياس معياري) وسهم الشمال وسماكة الخطوط
+  const [printScale, setPrintScale] = useState<number>(0);
+  const [northAngle, setNorthAngle] = useState<number>(0);
+  const [lineWeights, setLineWeights] = useState<Record<string, number>>({});
+  const [previewInfo, setPreviewInfo] = useState<{ scale: number; fits: boolean } | null>(null);
+  const loadedSnapshot = useRef<string>('');
+
+  /** الإعدادات الحالية بالصيغة المحفوظة مع المشروع */
+  const currentPrintSettings = (): PrintSettings => ({
+    paperFormat,
+    orientation,
+    theme,
+    printScale,
+    northAngle,
+    lineWeights,
+    titleBlock: { projectName, drawingTitle, discipline, sheetNumber, revision, engineer, client, stampStatus },
+  });
+  /** حفظ الإعدادات مع المشروع إن تغيرت منذ فتح النافذة */
+  const persistPrintSettings = () => {
+    const cur = currentPrintSettings();
+    if (JSON.stringify(cur) !== loadedSnapshot.current) model.setPrintSettings({ ...model.getPrintSettings(), ...cur });
+  };
+  const handleClose = () => {
+    persistPrintSettings();
+    onClose();
+  };
+
   // تحديث الطبقات عند فتح النافذة
   useEffect(() => {
     if (isOpen) {
       setSelectedLayers(model.getLayers().filter((l) => l.visible).map((l) => l.id));
-      setProjectName(model.getMeta().name || 'مشروع فيلا سكنية');
+      // استعادة إعدادات الطباعة المحفوظة مع المشروع
+      const ps = model.getPrintSettings();
+      const tb = ps.titleBlock || {};
+      const v = {
+        paperFormat: (ps.paperFormat as PaperFormat) || paperFormat,
+        orientation: ps.orientation || orientation,
+        theme: (ps.theme as ColorTheme) || theme,
+        printScale: ps.printScale ?? 0,
+        northAngle: ps.northAngle ?? 0,
+        lineWeights: ps.lineWeights || {},
+        projectName: tb.projectName || model.getMeta().name || 'مشروع فيلا سكنية',
+        drawingTitle: tb.drawingTitle ?? drawingTitle,
+        discipline: tb.discipline ?? discipline,
+        sheetNumber: tb.sheetNumber ?? sheetNumber,
+        revision: tb.revision ?? revision,
+        engineer: tb.engineer ?? engineer,
+        client: tb.client ?? client,
+        stampStatus: (tb.stampStatus as StampStatus) || stampStatus,
+      };
+      setPaperFormat(v.paperFormat);
+      setOrientation(v.orientation);
+      setTheme(v.theme);
+      setPrintScale(v.printScale);
+      setNorthAngle(v.northAngle);
+      setLineWeights(v.lineWeights);
+      setProjectName(v.projectName);
+      setDrawingTitle(v.drawingTitle);
+      setDiscipline(v.discipline);
+      setSheetNumber(v.sheetNumber);
+      setRevision(v.revision);
+      setEngineer(v.engineer);
+      setClient(v.client);
+      setStampStatus(v.stampStatus);
+      loadedSnapshot.current = JSON.stringify({
+        paperFormat: v.paperFormat, orientation: v.orientation, theme: v.theme, printScale: v.printScale, northAngle: v.northAngle, lineWeights: v.lineWeights,
+        titleBlock: { projectName: v.projectName, drawingTitle: v.drawingTitle, discipline: v.discipline, sheetNumber: v.sheetNumber, revision: v.revision, engineer: v.engineer, client: v.client, stampStatus: v.stampStatus },
+      });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, model]);
 
   // خيارات التصدير المجمعة
@@ -121,6 +190,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({
     includeBOQSheet,
     includeSymbolsLegendSheet,
     visibleLayerIds: selectedLayers,
+    printScale: printScale > 0 ? printScale : 'fit',
+    northAngle,
+    lineWeights,
     titleBlock: {
       projectName,
       drawingTitle,
@@ -150,6 +222,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
       if (previewTab === 'drawing') {
         // معاينة بدقة خفيفة وسريعة للعرض
         canvas = await ExportEngine.renderSheetToCanvas(engine, model, exportOptions, pdfW, pdfH, 1.2);
+        setPreviewInfo((canvas as HTMLCanvasElement & { printInfo?: { scale: number; fits: boolean } }).printInfo ?? null);
       } else {
         canvas = ExportEngine.renderBOQSheetToCanvas(model, exportOptions, pdfW, pdfH, 1.2);
       }
@@ -193,6 +266,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({
     engineer,
     client,
     stampStatus,
+    printScale,
+    northAngle,
+    lineWeights,
   ]);
 
   if (!isOpen) return null;
@@ -203,6 +279,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
     setIsExportingPDF(true);
     setExportSuccessMsg(null);
     try {
+      persistPrintSettings();
       await ExportEngine.exportPDF(engine, model, exportOptions);
       setExportSuccessMsg('تم تصدير ملف PDF الهندسي بنجاح!');
       setTimeout(() => setExportSuccessMsg(null), 4000);
@@ -304,7 +381,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
             )}
 
             <button
-              onClick={onClose}
+              onClick={handleClose}
               className="w-8 h-8 rounded-lg hover:bg-neutral-800 flex items-center justify-center text-neutral-400 hover:text-white transition-colors ml-2"
             >
               <X size={18} />
@@ -446,6 +523,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                 <div>
                   <label className="text-[11px] text-neutral-400 block mb-1">حجم الورقة:</label>
                   <select
+                    data-testid="paper-format"
                     value={paperFormat}
                     onChange={(e) => setPaperFormat(e.target.value as PaperFormat)}
                     className="w-full bg-neutral-800 border border-neutral-700 text-neutral-200 rounded-lg px-2.5 py-1.5 text-xs outline-none focus:border-sky-500"
@@ -454,6 +532,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                     <option value="a3">A3 (420 × 297 مم) - قياسي</option>
                     <option value="a2">A2 (594 × 420 مم)</option>
                     <option value="a1">A1 (841 × 594 مم) - ورشة</option>
+                    <option value="a0">A0 (1189 × 841 مم)</option>
                     <option value="letter">Letter</option>
                   </select>
                 </div>
@@ -469,6 +548,28 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                     <option value="portrait">رأسي (Portrait)</option>
                   </select>
                 </div>
+              </div>
+
+              <div>
+                <label className="text-[11px] text-neutral-400 block mb-1">مقياس الطباعة (حقيقي):</label>
+                <select
+                  data-testid="print-scale"
+                  value={printScale}
+                  onChange={(e) => setPrintScale(Number(e.target.value))}
+                  className="w-full bg-neutral-800 border border-neutral-700 text-neutral-200 rounded-lg px-2.5 py-1.5 text-xs outline-none focus:border-sky-500 font-mono-cad"
+                >
+                  <option value={0}>ملاءمة تلقائية (أقرب مقياس معياري يتسع)</option>
+                  {STANDARD_SCALES.map((s) => (
+                    <option key={s} value={s}>1:{s}</option>
+                  ))}
+                </select>
+                {previewInfo && (
+                  <div className={`mt-1 text-[11px] ${previewInfo.fits ? 'text-emerald-400' : 'text-amber-300'}`} data-testid="print-scale-info">
+                    {previewInfo.fits
+                      ? `يُطبع بمقياس 1:${previewInfo.scale} — القياس على الورق مطابق للواقع`
+                      : `المخطط لا يتسع بمقياس 1:${previewInfo.scale} على هذا الورق؛ اختر مقياساً أصغر أو ورقاً أكبر`}
+                  </div>
+                )}
               </div>
 
               <div>
@@ -587,14 +688,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                     </div>
                     <div>
                       <label className="text-xs font-semibold text-neutral-200 block mb-1">المقياس:</label>
-                      <div className="flex items-center gap-1 bg-neutral-800 border border-neutral-700 rounded-lg px-2.5 py-2 text-sm font-mono-cad text-white">
-                        <span>1:</span>
-                        <input
-                          type="text"
-                          value={scaleText}
-                          onChange={(e) => setScaleText(e.target.value)}
-                          className="w-full bg-transparent outline-none font-bold"
-                        />
+                      {/* يُملأ تلقائياً من مقياس الطباعة الحقيقي */}
+                      <div className="flex items-center gap-1 bg-neutral-800/60 border border-neutral-700 rounded-lg px-2.5 py-2 text-sm font-mono-cad text-neutral-300" title="يُحدد من «مقياس الطباعة» في إعدادات اللوحة">
+                        <span>1:{previewInfo?.scale ?? (printScale || scaleText)}</span>
                       </div>
                     </div>
                   </div>
@@ -720,6 +816,32 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                 </label>
               </div>
 
+              {includeNorthArrow && (
+                <div className="flex items-center gap-2 text-xs text-neutral-300 px-1">
+                  <span>اتجاه سهم الشمال:</span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={355}
+                    step={5}
+                    value={northAngle}
+                    onChange={(e) => setNorthAngle(Number(e.target.value))}
+                    className="flex-1 accent-sky-500"
+                    aria-label="زاوية سهم الشمال"
+                  />
+                  <input
+                    type="number"
+                    data-testid="north-angle"
+                    min={0}
+                    max={359}
+                    value={northAngle}
+                    onChange={(e) => setNorthAngle(((Math.round(Number(e.target.value) || 0) % 360) + 360) % 360)}
+                    className="w-14 bg-neutral-800 border border-neutral-700 rounded px-1 py-0.5 text-center font-mono-cad"
+                  />
+                  <span className="text-neutral-500">°</span>
+                </div>
+              )}
+
               {/* خيار صفحة BOQ في ملف الـ PDF */}
               <div className="mt-1 p-2.5 rounded-xl bg-emerald-950/40 border border-emerald-800/60 flex items-start gap-2.5">
                 <input
@@ -804,6 +926,36 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                 })}
               </div>
             </div>
+
+            {/* سماكة خطوط الطباعة لكل طبقة */}
+            <details className="rounded-xl border border-neutral-800 bg-neutral-950/40 p-2.5 text-xs" data-testid="line-weights">
+              <summary className="cursor-pointer font-bold text-neutral-200">سماكة خطوط الطباعة لكل طبقة</summary>
+              <div className="mt-2 flex flex-col gap-1.5">
+                {allLayers.map((l) => (
+                  <label key={l.id} className="flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-1.5 truncate">
+                      <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: l.color }} />
+                      <span className="truncate">{l.name}</span>
+                    </span>
+                    <select
+                      value={lineWeights[l.id] ?? ''}
+                      onChange={(e) => {
+                        const next = { ...lineWeights };
+                        if (e.target.value === '') delete next[l.id];
+                        else next[l.id] = Number(e.target.value);
+                        setLineWeights(next);
+                      }}
+                      className="bg-neutral-800 border border-neutral-700 rounded px-1.5 py-0.5 font-mono-cad"
+                    >
+                      <option value="">تلقائي</option>
+                      {LINE_WEIGHTS_MM.map((w) => (
+                        <option key={w} value={w}>{w} مم</option>
+                      ))}
+                    </select>
+                  </label>
+                ))}
+              </div>
+            </details>
 
             {/* زر التصدير الرئيسي البارز */}
             <div className="pt-2 mt-auto">

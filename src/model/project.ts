@@ -141,6 +141,19 @@ export class ProjectModel {
     this.notify();
   }
 
+  private printSettings: import('./types.ts').PrintSettings = {};
+
+  public getPrintSettings(): import('./types.ts').PrintSettings {
+    return JSON.parse(JSON.stringify(this.printSettings));
+  }
+
+  /** يحفظ إعدادات الطباعة (لا تدخل في سجل التراجع). لا يُعلِّم المشروع كمعدّل إن لم يتغير شيء */
+  public setPrintSettings(next: import('./types.ts').PrintSettings): void {
+    if (JSON.stringify(next) === JSON.stringify(this.printSettings)) return;
+    this.printSettings = JSON.parse(JSON.stringify(next));
+    this.notify();
+  }
+
   public getMeta(): ProjectMeta {
     return { ...this.meta };
   }
@@ -984,6 +997,7 @@ export class ProjectModel {
       sheets: JSON.parse(JSON.stringify(this.sheets)),
       activeSheetId: this.activeSheetId,
       quantities: this.getQuantitySettings(),
+      printSettings: this.getPrintSettings(),
       schemaVersion: CURRENT_SCHEMA_VERSION,
     };
   }
@@ -996,6 +1010,7 @@ export class ProjectModel {
     const { data, report } = migrateProjectData(input, DEFAULT_LAYERS);
     this.meta = { ...data.project };
     this.quantities = sanitizeQuantitySettings(data.quantities);
+    this.printSettings = data.printSettings && typeof data.printSettings === 'object' ? JSON.parse(JSON.stringify(data.printSettings)) : {};
     this.layers = JSON.parse(JSON.stringify(data.layers));
     this.activeLayerId = this.layers[0]?.id || 'arch';
     this.history.clear();
