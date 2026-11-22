@@ -27,6 +27,10 @@ import {
   DxfParseResult,
 } from '../engine/dxfEngine.ts';
 
+/** شرح تحويل DWG إلى DXF (لا يمكن قراءة DWG داخل المتصفح) */
+const DWG_HELP =
+  'صيغة DWG مغلقة ولا يمكن فتحها مباشرة هنا. حوّلها أولاً إلى DXF: من AutoCAD بأمر «حفظ باسم» واختيار DXF، أو ببرنامج تحويل مجاني مثل ODA File Converter، ثم استورد ملف DXF الناتج.';
+
 interface DxfModalProps {
   model: ProjectModel;
   isOpen: boolean;
@@ -98,6 +102,13 @@ export const DxfModal: React.FC<DxfModalProps> = ({
   };
 
   const processDxfFile = (file: File) => {
+    // ملفات DWG ثنائية مغلقة الصيغة: لا يمكن قراءتها داخل المتصفح — نوضح طريقة التحويل بدلاً من خطأ غامض
+    if (/\.dwg$/i.test(file.name)) {
+      setImportFile(file);
+      setParseResult(null);
+      setImportError(DWG_HELP);
+      return;
+    }
     setImportFile(file);
     setIsParsing(true);
     setImportError(null);
@@ -224,6 +235,7 @@ export const DxfModal: React.FC<DxfModalProps> = ({
                     <span>إصدار ومعيار ملف DXF</span>
                   </label>
                   <select
+                    data-testid="dxf-version"
                     value={version}
                     onChange={(e) => setVersion(e.target.value as any)}
                     className="w-full bg-neutral-900 border border-neutral-700 text-neutral-200 rounded-lg px-2.5 py-1.5 text-xs outline-none focus:border-sky-500 font-mono-cad"
@@ -365,7 +377,7 @@ export const DxfModal: React.FC<DxfModalProps> = ({
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".dxf"
+                  accept=".dxf,.dwg"
                   onChange={handleFileChange}
                   className="hidden"
                 />
@@ -376,6 +388,9 @@ export const DxfModal: React.FC<DxfModalProps> = ({
                 <p className="text-xs text-neutral-400 mt-1 max-w-sm">
                   يدعم ملفات ASCII DXF المصدرة من AutoCAD أو Revit أو Civil 3D أو أي برنامج CAD آخر
                 </p>
+              </div>
+              <div className="text-[11px] text-neutral-400 bg-neutral-950/40 p-2.5 rounded-lg border border-neutral-800" data-testid="dwg-note">
+                <span className="font-semibold text-neutral-300">ملفات DWG؟</span> {DWG_HELP}
               </div>
 
               {isParsing && (
@@ -497,6 +512,7 @@ export const DxfModal: React.FC<DxfModalProps> = ({
 
           {activeTab === 'export' ? (
             <button
+              data-testid="dxf-export"
               onClick={handleExport}
               className="flex items-center gap-2 px-5 py-2 rounded-lg text-xs font-bold bg-sky-600 hover:bg-sky-500 text-white shadow-md shadow-sky-600/30 transition-all cursor-pointer"
             >

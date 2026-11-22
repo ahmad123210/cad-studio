@@ -740,6 +740,7 @@ export const LeftToolbar: React.FC<LeftToolbarProps> = ({
         {/* زر تصدير واستيراد AutoCAD DXF */}
         {onOpenDxf && (
           <button
+            data-testid="open-dxf"
             onClick={onOpenDxf}
             className="w-11 h-10 rounded-xl flex flex-col items-center justify-center transition-all text-sky-300 hover:text-white hover:bg-neutral-800 border border-sky-500/30"
             title="تصدير واستيراد ملفات AutoCAD DXF"
