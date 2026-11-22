@@ -34,6 +34,7 @@ import { AreaBadge } from './ui/AreaBadge.tsx';
 import { SymbolsCatalogModal } from './ui/SymbolsCatalogModal.tsx';
 import { ScheduleBOQModal } from './ui/ScheduleBOQModal.tsx';
 import { BlocksModal } from './ui/BlocksModal.tsx';
+import { MepModal } from './ui/MepModal.tsx';
 import { copyProps, planPasteProps, type PropsSnapshot } from './model/matchProps.ts';
 import { RouteControlBar } from './ui/RouteControlBar.tsx';
 // تحميل كسول: نافذتا التصدير (jsPDF ≈630KB) وDXF تُحمَّلان عند أول فتح فقط
@@ -403,6 +404,12 @@ export default function App() {
   const [isSymbolsCatalogOpen, setIsSymbolsCatalogOpen] = useState(false);
   const [isScheduleBOQOpen, setIsScheduleBOQOpen] = useState(false);
   const [isBlocksOpen, setIsBlocksOpen] = useState(false);
+  const [isMepOpen, setIsMepOpen] = useState(false);
+  useEffect(() => {
+    const open = () => setIsMepOpen(true);
+    window.addEventListener('cad:open-mep', open);
+    return () => window.removeEventListener('cad:open-mep', open);
+  }, []);
   // حافظة الخصائص (نسخ الخصائص من عنصر ولصقها على غيره)
   const [propsClipboard, setPropsClipboard] = useState<PropsSnapshot | null>(null);
   // فتح مكتبة الكتل من شريط الأوامر (الأمر blocks يرسل هذا الحدث)
@@ -1320,6 +1327,7 @@ export default function App() {
         {/* شريط الأدوات الأيسر */}
         <LeftToolbar
           onOpenBlocks={() => setIsBlocksOpen(true)}
+          onOpenMep={() => setIsMepOpen(true)}
           currentTool={currentTool}
           selectionSubMode={selectionSubMode}
           onSelectTool={handleSelectTool}
@@ -1568,6 +1576,17 @@ export default function App() {
       />
 
       <BlocksModal model={model} engine={engineRef.current} isOpen={isBlocksOpen} onClose={() => setIsBlocksOpen(false)} />
+      <MepModal
+        model={model}
+        engine={engineRef.current}
+        isOpen={isMepOpen}
+        onClose={() => setIsMepOpen(false)}
+        onExportExcel={() => {
+          import('./engine/export/panelExcel.ts')
+            .then((m) => m.downloadPanelExcel(model))
+            .catch((err) => alert(`تعذّر إنشاء ملف Excel: ${err?.message || err}`));
+        }}
+      />
 
       <ScheduleBOQModal
         model={model}

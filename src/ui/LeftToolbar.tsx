@@ -43,6 +43,7 @@ import {
   Hexagon,
   Circle as CircleIcon,
   Footprints,
+  Calculator,
 } from 'lucide-react';
 import { ToolMode, CadEngine } from '../engine/renderer.ts';
 import { SnapOptions } from '../engine/snap.ts';
@@ -76,10 +77,13 @@ interface LeftToolbarProps {
   hasBackgroundImage: boolean;
   /** فتح مكتبة الكتل */
   onOpenBlocks?: () => void;
+  /** فتح نافذة حسابات التمديدات */
+  onOpenMep?: () => void;
 }
 
 export const LeftToolbar: React.FC<LeftToolbarProps> = ({
   onOpenBlocks,
+  onOpenMep,
   currentTool,
   selectionSubMode,
   onSelectTool,
@@ -705,6 +709,19 @@ export const LeftToolbar: React.FC<LeftToolbarProps> = ({
           >
             <FileSpreadsheet size={16} />
             <span className="text-[7.5px] mt-0.5 font-bold">BOQ</span>
+          </button>
+        )}
+
+        {/* حسابات التمديدات (كهرباء، مياه وصرف، تعارضات) */}
+        {onOpenMep && (
+          <button
+            data-testid="open-mep"
+            onClick={onOpenMep}
+            className="w-11 h-10 rounded-xl flex flex-col items-center justify-center transition-all text-amber-400 hover:text-amber-300 hover:bg-amber-950/40 border border-amber-500/20"
+            title="حسابات التمديدات: الدوائر والأحمال والكابلات، المياه والصرف، التعارضات (mep)"
+          >
+            <Calculator size={16} />
+            <span className="text-[7.5px] mt-0.5 font-bold">حسابات</span>
           </button>
         )}
 

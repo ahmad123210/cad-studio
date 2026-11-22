@@ -68,6 +68,17 @@ export const COMMANDS: CadCommand[] = [
   { id: 'stretch', label: 'تمطيط', aliases: ['stretch', 'str', 'تمطيط', 'مط'], defaultCodes: [], remappable: true, run: edit('stretch') },
   { id: 'dimchain', label: 'أبعاد متسلسلة', aliases: ['dimchain', 'dch', 'dimcontinue', 'أبعاد متسلسلة', 'ابعاد متسلسلة'], defaultCodes: [], remappable: true, run: edit('dimchain') },
   {
+    id: 'mep',
+    label: 'حسابات التمديدات',
+    aliases: ['mep', 'calc', 'حسابات', 'دوائر', 'لوحة الكهرباء'],
+    defaultCodes: [],
+    remappable: true,
+    run: () => {
+      window.dispatchEvent(new Event('cad:open-mep'));
+      return null;
+    },
+  },
+  {
     id: 'blocks',
     label: 'مكتبة الكتل',
     aliases: ['blocks', 'block', 'insert', 'i', 'كتل', 'كتلة', 'إدراج'],

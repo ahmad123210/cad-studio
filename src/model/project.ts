@@ -30,6 +30,7 @@ import type { EditPlan } from './trimExtend.ts';
 import { CURRENT_SCHEMA_VERSION, migrateProjectData } from './schema.ts';
 import { sanitizeQuantitySettings } from './quantitySettings.ts';
 import { sanitizeBlocks, type BlockDef } from './blocks.ts';
+import { sanitizeMep, type MepData } from './electrical.ts';
 import type { QuantitySettings } from './types.ts';
 import { idbSaveProject, idbLoadProject, idbAddBackup, idbListBackups, idbGetBackup, BackupEntry } from './storage.ts';
 
@@ -150,6 +151,19 @@ export class ProjectModel {
 
   /** الكتل المحفوظة في المشروع */
   private blocks: BlockDef[] = [];
+
+  /** الدوائر الكهربائية وإعداداتها */
+  private mep: MepData = sanitizeMep(undefined);
+
+  public getMep(): MepData {
+    return JSON.parse(JSON.stringify(this.mep));
+  }
+
+  /** تحديث بيانات الكهرباء (دوائر/إعدادات) — لا تدخل في سجل التراجع */
+  public setMep(next: MepData): void {
+    this.mep = sanitizeMep(next);
+    this.notify();
+  }
 
   public getBlocks(): BlockDef[] {
     return JSON.parse(JSON.stringify(this.blocks));
@@ -1055,6 +1069,7 @@ export class ProjectModel {
       quantities: this.getQuantitySettings(),
       printSettings: this.getPrintSettings(),
       blocks: this.getBlocks(),
+      mep: this.getMep() as unknown as ProjectData['mep'],
       schemaVersion: CURRENT_SCHEMA_VERSION,
     };
   }
@@ -1068,6 +1083,7 @@ export class ProjectModel {
     this.meta = { ...data.project };
     this.quantities = sanitizeQuantitySettings(data.quantities);
     this.blocks = sanitizeBlocks(data.blocks);
+    this.mep = sanitizeMep(data.mep);
     this.printSettings = data.printSettings && typeof data.printSettings === 'object' ? JSON.parse(JSON.stringify(data.printSettings)) : {};
     this.layers = JSON.parse(JSON.stringify(data.layers));
     this.activeLayerId = this.layers[0]?.id || 'arch';

@@ -4,6 +4,7 @@
  * (مُستخرج من PropertiesPanel.tsx دون تغيير في السلوك)
  */
 
+import { CircuitFields } from './CircuitFields.tsx';
 import React from 'react';
 import {
   Trash2,
@@ -933,6 +934,11 @@ export const MultiSelectionProperties: React.FC<PanelContext> = (ctx) => {
                   <div className="bg-neutral-900 p-2 rounded border border-neutral-800 flex items-center justify-between">
                     <span className="text-neutral-400">نوافذ:</span>
                     <span className="font-bold text-teal-400 font-mono-cad">{windowsCount}</span>
+                  </div>
+                )}
+                {symbolsCount > 0 && (
+                  <div className="col-span-full">
+                    <CircuitFields model={model} symbols={selectedObjects.filter((o) => o.type === 'symbol') as SymbolObject[]} />
                   </div>
                 )}
                 {symbolsCount > 0 && (

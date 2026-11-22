@@ -11,6 +11,7 @@
 
 import { sanitizeQuantitySettings } from './quantitySettings.ts';
 import { sanitizeBlocks } from './blocks.ts';
+import { sanitizeMep } from './electrical.ts';
 import type { ProjectData, ProjectObject, ProjectSheet, Layer, Point, UnitType } from './types.ts';
 
 export const CURRENT_SCHEMA_VERSION = 2;
@@ -241,6 +242,7 @@ export function migrateProjectData(raw: unknown, defaultLayers: Layer[]): { data
     activeSheetId,
     quantities: sanitizeQuantitySettings(src.quantities),
     blocks: sanitizeBlocks(src.blocks),
+    mep: sanitizeMep(src.mep) as unknown as ProjectData['mep'],
     printSettings: src.printSettings && typeof src.printSettings === 'object' && !Array.isArray(src.printSettings) ? src.printSettings : {},
     schemaVersion: CURRENT_SCHEMA_VERSION,
   };

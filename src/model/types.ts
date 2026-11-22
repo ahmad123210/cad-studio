@@ -169,6 +169,10 @@ export interface SymbolObject extends BaseObject {
   color?: string; // لون مخصص للرمز (تجاوز لون الطبقة)
   label?: string; // تسمية توضيحية اختيارية (مثال: 'DB-1', '220V', 'AC-01')
   connections?: string[]; // معرفات المسارات المتصلة بالرمز (للمرحلة 5)
+  /** الدائرة الكهربائية المسندة إليها النقطة (حسابات الكهرباء) */
+  circuitId?: string;
+  /** حمل مخصص بالواط (يتجاوز الحمل الافتراضي للرمز) */
+  loadW?: number;
 }
 
 /**
@@ -348,6 +352,8 @@ export interface ProjectData {
   quantities?: QuantitySettings;
   /** إعدادات الطباعة والخرطوشة */
   printSettings?: PrintSettings;
+  /** بيانات الكهرباء: الدوائر وإعدادات الحساب */
+  mep?: { circuits: { id: string; name: string; kind: 'lighting' | 'sockets' | 'power'; phase: 'L1' | 'L2' | 'L3' | '3P'; panelId?: string }[]; settings: Record<string, unknown> };
   /** الكتل المحفوظة في المشروع (عناصر بإحداثيات نسبية لنقطة أساس) */
   blocks?: { id: string; name: string; objects: ProjectObject[] }[];
   /** إصدار صيغة الملف (انظر model/schema.ts) */
