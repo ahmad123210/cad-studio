@@ -85,3 +85,14 @@ test('SVG export: vector file with real size at the print scale', async ({ page 
   expect(w).toBeGreaterThan(182);
   expect(w).toBeLessThan(205); // تشمل شارات أطوال الجدران خارجها
 });
+
+test('IFC export downloads a STEP file with walls', async ({ page }) => {
+  await openFresh(page, { ...emptyProject(), objects });
+  await page.keyboard.press('Control+e');
+  const [d] = await Promise.all([page.waitForEvent('download'), page.getByTestId('export-ifc').click()]);
+  const chunks: Buffer[] = [];
+  for await (const c of await d.createReadStream()) chunks.push(c as Buffer);
+  const ifc = Buffer.concat(chunks).toString('utf-8');
+  expect(ifc.startsWith('ISO-10303-21;')).toBe(true);
+  expect((ifc.match(/=IFCWALLSTANDARDCASE\(/g) || []).length).toBe(4);
+});
