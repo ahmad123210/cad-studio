@@ -348,6 +348,8 @@ export interface ProjectData {
   quantities?: QuantitySettings;
   /** إعدادات الطباعة والخرطوشة */
   printSettings?: PrintSettings;
+  /** الكتل المحفوظة في المشروع (عناصر بإحداثيات نسبية لنقطة أساس) */
+  blocks?: { id: string; name: string; objects: ProjectObject[] }[];
   /** إصدار صيغة الملف (انظر model/schema.ts) */
   schemaVersion?: number;
   /** وقت آخر حفظ محلي (لمقارنة نسخ التخزين) */

@@ -36,6 +36,7 @@ import {
   AlignVerticalJustifyCenter,
   AlignHorizontalDistributeCenter,
   AlignVerticalDistributeCenter,
+  Boxes,
 } from 'lucide-react';
 import type { EditCommandKind } from '../engine/renderer.ts';
 import { ALIGN_LABELS, type AlignMode } from '../model/align.ts';
@@ -73,6 +74,8 @@ export interface ContextMenuProps {
   onEditCommand?: (kind: EditCommandKind) => void;
   /** محاذاة/توزيع التحديد المتعدد */
   onAlign?: (mode: AlignMode) => void;
+  /** فتح مكتبة الكتل (لحفظ التحديد ككتلة) */
+  onOpenBlocks?: () => void;
 }
 
 export const ContextMenu: React.FC<ContextMenuProps> = ({
@@ -95,6 +98,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
   onClose,
   onEditCommand,
   onAlign,
+  onOpenBlocks,
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -328,6 +332,19 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
                 <MoveHorizontal size={14} className="text-rose-400" />
                 <span>تمديد (Extend)</span>
               </button>
+              {onOpenBlocks && hasSelection && (
+                <button
+                  data-testid="ctx-save-block"
+                  onClick={() => {
+                    onOpenBlocks();
+                    onClose();
+                  }}
+                  className="w-full px-3 py-2 text-right text-xs flex items-center gap-2 hover:bg-neutral-800 text-neutral-200"
+                >
+                  <Boxes size={14} className="text-sky-400" />
+                  <span>حفظ التحديد ككتلة...</span>
+                </button>
+              )}
               {onAlign && selectedCount >= 2 && (
                 <div className="px-2.5 py-1.5" data-testid="align-toolbar">
                   <div className="text-[10px] text-neutral-500 mb-1">محاذاة وتوزيع</div>

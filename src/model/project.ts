@@ -29,6 +29,7 @@ import { TransformSpec, transformUpdates } from './transforms.ts';
 import type { EditPlan } from './trimExtend.ts';
 import { CURRENT_SCHEMA_VERSION, migrateProjectData } from './schema.ts';
 import { sanitizeQuantitySettings } from './quantitySettings.ts';
+import { sanitizeBlocks, type BlockDef } from './blocks.ts';
 import type { QuantitySettings } from './types.ts';
 import { idbSaveProject, idbLoadProject, idbAddBackup, idbListBackups, idbGetBackup, BackupEntry } from './storage.ts';
 
@@ -146,6 +147,23 @@ export class ProjectModel {
   }
 
   private printSettings: import('./types.ts').PrintSettings = {};
+
+  /** الكتل المحفوظة في المشروع */
+  private blocks: BlockDef[] = [];
+
+  public getBlocks(): BlockDef[] {
+    return JSON.parse(JSON.stringify(this.blocks));
+  }
+
+  public addBlock(block: BlockDef): void {
+    this.blocks = [...this.blocks.filter((b) => b.id !== block.id), JSON.parse(JSON.stringify(block))];
+    this.notify();
+  }
+
+  public removeBlock(id: string): void {
+    this.blocks = this.blocks.filter((b) => b.id !== id);
+    this.notify();
+  }
 
   public getPrintSettings(): import('./types.ts').PrintSettings {
     return JSON.parse(JSON.stringify(this.printSettings));
@@ -1036,6 +1054,7 @@ export class ProjectModel {
       activeSheetId: this.activeSheetId,
       quantities: this.getQuantitySettings(),
       printSettings: this.getPrintSettings(),
+      blocks: this.getBlocks(),
       schemaVersion: CURRENT_SCHEMA_VERSION,
     };
   }
@@ -1048,6 +1067,7 @@ export class ProjectModel {
     const { data, report } = migrateProjectData(input, DEFAULT_LAYERS);
     this.meta = { ...data.project };
     this.quantities = sanitizeQuantitySettings(data.quantities);
+    this.blocks = sanitizeBlocks(data.blocks);
     this.printSettings = data.printSettings && typeof data.printSettings === 'object' ? JSON.parse(JSON.stringify(data.printSettings)) : {};
     this.layers = JSON.parse(JSON.stringify(data.layers));
     this.activeLayerId = this.layers[0]?.id || 'arch';

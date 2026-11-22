@@ -90,6 +90,7 @@ import { planAlign, ALIGN_LABELS, type AlignMode } from '../model/align.ts';
 // تسجيل الأوامر الموسّعة (أشكال الرسم...) في سجل الأوامر
 import './tools/drawCommands.ts';
 import './tools/structureCommands.ts';
+import './tools/blockCommands.ts';
 
 
 export type ToolMode =
