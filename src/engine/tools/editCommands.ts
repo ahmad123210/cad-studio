@@ -21,8 +21,16 @@ import {
 } from '../../model/transforms.ts';
 import { planTrim, planExtend } from '../../model/trimExtend.ts';
 import type { CadEngine } from '../renderer.ts';
+import { EXT_COMMANDS } from './commandRegistry.ts';
 
-export type EditCommandKind = 'move' | 'copy' | 'rotate' | 'scale' | 'mirror' | 'array' | 'offset' | 'trim' | 'extend' | 'arraypolar';
+export type EditCommandKind =
+  | 'move' | 'copy' | 'rotate' | 'scale' | 'mirror' | 'array' | 'offset' | 'trim' | 'extend' | 'arraypolar'
+  // أشكال الرسم (drawCommands.ts)
+  | 'rect' | 'circle' | 'arc' | 'polygon'
+  // عناصر إنشائية (structureCommands.ts)
+  | 'column' | 'stairs'
+  // أوامر تحرير إضافية (moreEditCommands.ts)
+  | 'fillet' | 'chamfer' | 'break' | 'join' | 'stretch' | 'dimchain' | 'insertblock';
 
 export interface EditCommandState {
   kind: EditCommandKind;
@@ -32,6 +40,10 @@ export interface EditCommandState {
   base: Point | null;
   /** مسافة الإزاحة المتوازية (بوحدة العالم) بعد إدخالها */
   offsetDistance?: number;
+  /** نقاط مُدخلة للأوامر الموسّعة (أشكال، تمطيط...) */
+  pts?: Point[];
+  /** بيانات خاصة بالأمر الموسّع */
+  data?: Record<string, unknown>;
 }
 
 export const EDIT_COMMAND_NAMES: Record<EditCommandKind, string> = {
@@ -45,6 +57,19 @@ export const EDIT_COMMAND_NAMES: Record<EditCommandKind, string> = {
   trim: 'قص',
   extend: 'تمديد',
   arraypolar: 'مصفوفة دائرية',
+  rect: 'مستطيل',
+  circle: 'دائرة',
+  arc: 'قوس',
+  polygon: 'مضلع',
+  column: 'عمود',
+  stairs: 'درج',
+  fillet: 'وصل ركن',
+  chamfer: 'شطف ركن',
+  break: 'كسر',
+  join: 'دمج',
+  stretch: 'تمطيط',
+  dimchain: 'أبعاد متسلسلة',
+  insertblock: 'إدراج كتلة',
 };
 
 /** أوامر لا تحتاج تحديداً مسبقاً (تعمل بالنقر على العنصر مباشرة) */
@@ -53,8 +78,26 @@ const PICK_COMMANDS: EditCommandKind[] = ['trim', 'extend'];
 const POLAR = [0, 45, 90, 135, 180, 225, 270, 315, 360];
 
 /** بدء أمر تحرير على التحديد الحالي. يعيد رسالة خطأ أو null */
-export function startEditCommandImpl(this: CadEngine, kind: EditCommandKind): string | null {
+export function startEditCommandImpl(this: CadEngine, kind: EditCommandKind, data?: Record<string, unknown>): string | null {
   const ids = this.selectedObjectIds.length > 0 ? [...this.selectedObjectIds] : this.selectedObjectId ? [this.selectedObjectId] : [];
+  const ext = EXT_COMMANDS[kind];
+  if (ext) {
+    if (ext.needsSelection && ids.length === 0) return 'حدد عنصراً أو أكثر أولاً ثم اختر الأمر';
+    const err = ext.validate?.(this, ids);
+    if (err) return err;
+    if (ext.runImmediately) {
+      const r = ext.runImmediately(this, ids);
+      this.render();
+      return r;
+    }
+    this.cancelDrawing();
+    this.editCmd = { kind, ids, step: 0, base: null, pts: [], data: data ? { ...data } : {} };
+    this.toolMode = 'edit';
+    this.callbacks.onToolModeChange?.('edit');
+    this.updateCursor();
+    this.renderInteractionLayer();
+    return null;
+  }
   if (ids.length === 0 && !PICK_COMMANDS.includes(kind)) return 'حدد عنصراً أو أكثر أولاً ثم اختر الأمر';
   if (kind === 'offset') {
     const walls = ids.filter((id) => this.model.getObjectById(id)?.type === 'wall');
@@ -73,6 +116,7 @@ export function startEditCommandImpl(this: CadEngine, kind: EditCommandKind): st
 export function isEditAwaitingValueImpl(this: CadEngine): boolean {
   const c = this.editCmd;
   if (!c) return false;
+  if (EXT_COMMANDS[c.kind]) return EXT_COMMANDS[c.kind].awaitingValue?.(this, c) ?? false;
   if (c.kind === 'array') return true;
   if (c.kind === 'offset') return c.step === 0;
   if (c.kind === 'arraypolar') return c.step === 1;
@@ -83,6 +127,7 @@ export function isEditAwaitingValueImpl(this: CadEngine): boolean {
 export function getEditPromptImpl(this: CadEngine): string {
   const c = this.editCmd;
   if (!c) return '';
+  if (EXT_COMMANDS[c.kind]) return EXT_COMMANDS[c.kind].prompt(this, c);
   const n = `${c.ids.length} عنصر`;
   switch (c.kind) {
     case 'move':
@@ -105,7 +150,13 @@ export function getEditPromptImpl(this: CadEngine): string {
       return 'انقر قرب طرف الجدار/الخط لتمديده حتى أقرب حد — يتكرر حتى Esc';
     case 'arraypolar':
       return c.step === 0 ? `مصفوفة دائرية ${n}: حدد المركز` : 'العدد,الزاوية الكلية — مثل 6,360 أو 4,90';
+    default:
+      return EDIT_COMMAND_NAMES[c.kind];
   }
+}
+
+export function finishEditCommand(engine: CadEngine): void {
+  finish(engine);
 }
 
 function finish(engine: CadEngine): void {
@@ -117,7 +168,7 @@ function finish(engine: CadEngine): void {
 }
 
 /** نقطة الوجهة مع التعامد/القطبي (التقاط العناصر له الأولوية) */
-function constrained(engine: CadEngine, base: Point, p: Point, objectSnapped: boolean, shift: boolean): Point {
+export function constrained(engine: CadEngine, base: Point, p: Point, objectSnapped: boolean, shift: boolean): Point {
   const polar = SnapEngine.getPolarAngleSnap(base, p, POLAR, shift ? 25 : 5.0);
   return (!objectSnapped && polar.isSnapped) || shift ? polar.point : p;
 }
@@ -169,6 +220,15 @@ function applySpec(engine: CadEngine, c: EditCommandState, spec: TransformSpec):
 export function handleEditClickImpl(this: CadEngine, point: Point, objectSnapped: boolean, shift: boolean, rawPoint?: Point): void {
   const c = this.editCmd;
   if (!c) return;
+  const ext = EXT_COMMANDS[c.kind];
+  if (ext) {
+    if (ext.click(this, c, point, objectSnapped, shift, rawPoint)) finish(this);
+    else {
+      this.callbacks.onCursorMove(this.currentSnapResult.point, this.currentSnapResult);
+      this.render();
+    }
+    return;
+  }
   if (c.kind === 'array') return; // ينتظر قيماً رقمية
   if (c.kind === 'trim' || c.kind === 'extend') {
     const zf = Math.max(1, 1 / (this.camera.getState().zoom || 1));
@@ -233,6 +293,17 @@ export function handleEditClickImpl(this: CadEngine, point: Point, objectSnapped
 export function applyEditValueImpl(this: CadEngine, text: string): string | null {
   const c = this.editCmd;
   if (!c) return 'لا يوجد أمر تحرير نشط';
+  const ext = EXT_COMMANDS[c.kind];
+  if (ext) {
+    if (!ext.value) return 'هذا الأمر ينتظر نقطة: انقر على اللوحة أو اكتب x,y أو @dx,dy';
+    const r = ext.value(this, c, text);
+    if (r === true) {
+      finish(this);
+      return null;
+    }
+    if (r === null) this.render();
+    return r;
+  }
   const ppm = this.model.getMeta().scale || 50;
   const raw = text.trim().replace(/،/g, ',').replace(/\s+/g, '');
   const nums = raw.split(',').map(Number);
@@ -303,6 +374,10 @@ export function renderEditPreviewImpl(this: CadEngine, shift: boolean): void {
   const toS = (p: Point) => this.camera.worldToScreen(p);
 
   let spec: TransformSpec | null = null;
+  if (EXT_COMMANDS[c.kind]) {
+    EXT_COMMANDS[c.kind].preview?.(this, c, cursor, shift);
+    return;
+  }
   if (c.kind === 'trim' || c.kind === 'extend') return;
   if (c.kind === 'arraypolar') {
     if (c.base) {

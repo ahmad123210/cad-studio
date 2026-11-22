@@ -86,6 +86,8 @@ import { renderDoorImpl, renderWindowImpl } from './render/openings.ts';
 import { renderWallHandlesImpl } from './render/wallHandles.ts';
 import { renderInteractionLayerImpl, renderAngleGuidelineImpl, renderFloatingBadgeImpl, renderSnapIndicatorOnlyImpl, renderSnapIndicatorShapesImpl } from './render/interactionLayer.ts';
 import { planAlign, ALIGN_LABELS, type AlignMode } from '../model/align.ts';
+// تسجيل الأوامر الموسّعة (أشكال الرسم...) في سجل الأوامر
+import './tools/drawCommands.ts';
 
 
 export type ToolMode =
@@ -597,8 +599,8 @@ export class CadEngine {
   spatialIndex: SpatialIndex | null = null;
   spatialIndexVersion = -1;
 
-  public startEditCommand(kind: EditCommandKind): string | null {
-    return startEditCommandImpl.call(this, kind);
+  public startEditCommand(kind: EditCommandKind, data?: Record<string, unknown>): string | null {
+    return startEditCommandImpl.call(this, kind, data);
   }
 
   /** محاذاة/توزيع العناصر المحددة (خطوة تراجع واحدة). يعيد رسالة خطأ أو null */

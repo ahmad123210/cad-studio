@@ -55,6 +55,10 @@ export const COMMANDS: CadCommand[] = [
   { id: 'trim', label: 'قص', aliases: ['trim', 'tr', 'قص'], defaultCodes: [], remappable: true, run: edit('trim') },
   { id: 'extend', label: 'تمديد', aliases: ['extend', 'ex', 'تمديد'], defaultCodes: [], remappable: true, run: edit('extend') },
   { id: 'arraypolar', label: 'مصفوفة دائرية', aliases: ['arraypolar', 'polar', 'ap', 'مصفوفة دائرية', 'دائرية'], defaultCodes: [], remappable: true, run: edit('arraypolar') },
+  { id: 'rect', label: 'مستطيل', aliases: ['rect', 'rectangle', 'rec', 'مستطيل'], defaultCodes: [], remappable: true, run: edit('rect') },
+  { id: 'circle', label: 'دائرة', aliases: ['circle', 'c', 'ci', 'دائرة'], defaultCodes: [], remappable: true, run: edit('circle') },
+  { id: 'arc', label: 'قوس', aliases: ['arc', 'قوس'], defaultCodes: [], remappable: true, run: edit('arc') },
+  { id: 'polygon', label: 'مضلع منتظم', aliases: ['polygon', 'pol', 'مضلع'], defaultCodes: [], remappable: true, run: edit('polygon') },
   {
     id: 'rooms',
     label: 'كشف الغرف',

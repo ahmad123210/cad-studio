@@ -38,6 +38,10 @@ import {
   X,
   Type,
   LayoutGrid,
+  RectangleHorizontal,
+  Spline,
+  Hexagon,
+  Circle as CircleIcon,
 } from 'lucide-react';
 import { ToolMode, CadEngine } from '../engine/renderer.ts';
 import { SnapOptions } from '../engine/snap.ts';
@@ -99,6 +103,13 @@ export const LeftToolbar: React.FC<LeftToolbarProps> = ({
   const [showRouteMenu, setShowRouteMenu] = useState(false);
   const [showSelectMenu, setShowSelectMenu] = useState(false);
   const [showLayerPicker, setShowLayerPicker] = useState(false);
+  // لوحة الأشكال المنبثقة (مستطيل، دائرة، قوس، مضلع...)
+  const [shapesMenu, setShapesMenu] = useState<{ top: number; right: number } | null>(null);
+  const runEdit = (kind: Parameters<CadEngine['startEditCommand']>[0]) => {
+    setShapesMenu(null);
+    const err = engine?.startEditCommand(kind);
+    if (err) alert(err);
+  };
   const selectButtonRef = useRef<HTMLButtonElement | null>(null);
   const [menuCoords, setMenuCoords] = useState<{ top: number; left?: number; right?: number }>({ top: 70, right: 72 });
   const currentRouteMeta = ROUTE_KINDS_META[activeRouteKind];
@@ -475,6 +486,51 @@ export const LeftToolbar: React.FC<LeftToolbarProps> = ({
           <Ruler size={17} />
           <span className="text-[8px] mt-0.5 font-medium">أبعاد</span>
         </button>
+
+        {/* الأشكال: مستطيل · دائرة · قوس · مضلع */}
+        <button
+          data-testid="shapes-button"
+          onClick={(e) => {
+            const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+            setShapesMenu(shapesMenu ? null : { top: Math.max(12, Math.min(window.innerHeight - 260, r.top)), right: window.innerWidth - r.left + 8 });
+          }}
+          className={`w-11 h-10 rounded-xl flex flex-col items-center justify-center transition-all relative ${
+            shapesMenu ? 'bg-cyan-700 text-white' : 'text-neutral-400 hover:text-cyan-300 hover:bg-neutral-800'
+          }`}
+          title="أشكال الرسم: مستطيل، دائرة، قوس، مضلع"
+        >
+          <Shapes size={17} />
+          <span className="text-[8px] mt-0.5 font-medium">أشكال</span>
+        </button>
+        {shapesMenu &&
+          createPortal(
+            <div dir="rtl" className="select-none">
+              <div className="fixed inset-0 z-50" onClick={() => setShapesMenu(null)} />
+              <div
+                data-testid="shapes-menu"
+                style={{ top: shapesMenu.top, right: shapesMenu.right }}
+                className="fixed z-50 w-56 bg-neutral-900/95 border border-cyan-500/40 rounded-2xl shadow-2xl p-2 grid grid-cols-2 gap-1.5 text-xs backdrop-blur-md"
+              >
+                {([
+                  ['rect', 'مستطيل', 'rec', RectangleHorizontal],
+                  ['circle', 'دائرة', 'c', CircleIcon],
+                  ['arc', 'قوس (3 نقاط)', 'arc', Spline],
+                  ['polygon', 'مضلع منتظم', 'pol', Hexagon],
+                ] as const).map(([kind, label, alias, Icon]) => (
+                  <button
+                    key={kind}
+                    onClick={() => runEdit(kind)}
+                    className="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-neutral-800 text-neutral-200"
+                    title={`${label} — في شريط الأوامر: ${alias}`}
+                  >
+                    <Icon size={18} className="text-cyan-300" />
+                    <span>{label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>,
+            document.body
+          )}
 
         {/* أداة إضافة الملاحظات والتلميحات النصية */}
         <button
