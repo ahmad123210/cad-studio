@@ -19,6 +19,7 @@ import { ROUTE_KINDS_META, calculateRoutePixelLength } from '../symbols/routes.t
 import { SnapEngine } from './snap.ts';
 import { fitStandardScale, fitsAtScale, mmPerWorldPx, niceScaleBar } from './print/printLayout.ts';
 import { renderSymbolIcon } from './print/symbolIcon.ts';
+import { buildSvg, downloadText } from './export/svgExport.ts';
 import { computeQuantities, lineTotal, BOQ_SECTION_TITLES, type BoqLine, type BoqSection } from '../model/quantities.ts';
 
 export type PaperFormat = 'a4' | 'a3' | 'a2' | 'a1' | 'a0' | 'letter';
@@ -180,14 +181,18 @@ export class ExportEngine {
     engine: CadEngine,
     model: ProjectModel,
     options: ExportPDFOptions,
-    format: 'png' | 'jpeg' = 'png'
-  ): Promise<void> {
+    format: 'png' | 'jpeg' = 'png',
+    dpi = 288
+  ): Promise<number> {
     const isLandscape = options.orientation === 'landscape';
     const paper = PAPER_DIMENSIONS_MM[options.paperFormat];
     const pdfW = isLandscape ? Math.max(paper.width, paper.height) : Math.min(paper.width, paper.height);
     const pdfH = isLandscape ? Math.min(paper.width, paper.height) : Math.max(paper.width, paper.height);
 
-    const canvas = await this.renderSheetToCanvas(engine, model, options, pdfW, pdfH, 3);
+    // الدقة المطلوبة مع سقف حجم اللوحة في المتصفح (16000 بكسل للضلع الأطول)
+    const maxSide = 16000;
+    const effDpi = Math.min(dpi, (maxSide / (Math.max(pdfW, pdfH) / 25.4)));
+    const canvas = await this.renderSheetToCanvas(engine, model, options, pdfW, pdfH, effDpi / 96);
     const mime = format === 'jpeg' ? 'image/jpeg' : 'image/png';
     const dataUrl = canvas.toDataURL(mime, 0.95);
 
@@ -198,6 +203,50 @@ export class ExportEngine {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    return Math.round(effDpi);
+  }
+
+  /** تصدير المخطط (اللوحة الحالية) كملف SVG متجه بمقاسه الحقيقي حسب مقياس الطباعة */
+  public static exportSVG(engine: CadEngine, model: ProjectModel, options: ExportPDFOptions): void {
+    const ppm = model.getMeta().scale || 50;
+    const { prims } = engine.exportVectorPrims({ visibleLayerIds: options.visibleLayerIds, includeDimensions: options.includeDimensions, theme: 'light' });
+    // الرموز مصممة لخلفية داكنة (تعبئة داكنة وخطوط بلون الطبقة الفاتح): نقلبها لتظهر على الورق الأبيض
+    const symbolIds = new Set(model.getObjects().filter((o) => o.type === 'symbol').map((o) => o.id));
+    // العناصر التي تُعكس ألوانها الفاتحة جداً على الورق الأبيض (لا الجدران والفتحات: الأبيض فيها لإخفاء الجدار)
+    const recolorIds = new Set(model.getObjects().filter((o) => !['wall', 'door', 'window', 'room'].includes(o.type)).map((o) => o.id));
+    const lum = (c?: string) => {
+      const m = c && /^#([0-9a-f]{6})$/i.exec(c);
+      if (!m) return 0;
+      const v = parseInt(m[1], 16);
+      return (0.299 * ((v >> 16) & 255) + 0.587 * ((v >> 8) & 255) + 0.114 * (v & 255)) / 255;
+    };
+    for (const pr of prims) {
+      if (!pr.oid || !recolorIds.has(pr.oid)) continue;
+      if (pr.kind !== 'text' && pr.stroke && lum(pr.stroke) > 0.88) pr.stroke = '#0f172a';
+      if (pr.kind === 'text' && lum(pr.fill) > 0.88) pr.fill = '#0f172a';
+      if (symbolIds.has(pr.oid) && pr.kind !== 'text' && pr.fill && lum(pr.fill) < 0.2) pr.fill = '#ffffff';
+    }
+    // حدود الرسم من العناصر نفسها (تشمل أقواس الأبواب الخارجة عن الجدران)
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    const inc = (x: number, y: number) => {
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    };
+    for (const pr of prims) {
+      if (pr.kind === 'poly') pr.pts.forEach((q) => inc(q.x, q.y));
+      else if (pr.kind === 'circle') {
+        inc(pr.c.x - pr.r, pr.c.y - pr.r);
+        inc(pr.c.x + pr.r, pr.c.y + pr.r);
+      } else inc(pr.p.x, pr.p.y);
+    }
+    if (!isFinite(minX)) throw new Error('لا توجد عناصر لتصديرها');
+    const bounds = { minX, minY, width: maxX - minX, height: maxY - minY };
+    const scale = typeof options.printScale === 'number' && options.printScale > 0 ? options.printScale : 100;
+    const svg = buildSvg(prims, bounds, { scale, pixelsPerMeter: ppm, title: options.titleBlock.projectName, padding: 20 });
+    const clean = (options.titleBlock.projectName || 'Drawing').replace(/[/\\?%*:|"<>]/g, '_');
+    downloadText(svg, `${clean}_${options.titleBlock.sheetNumber || '01'}.svg`, 'image/svg+xml;charset=utf-8');
   }
 
   /**

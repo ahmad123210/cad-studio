@@ -68,3 +68,20 @@ test('company, revisions and views are saved; all sheets export as one multi-pag
   expect(data.printSettings.views[1].region).toBeTruthy();
   expect(data.printSettings.allSheets).toBe(true);
 });
+
+test('SVG export: vector file with real size at the print scale', async ({ page }) => {
+  await openFresh(page, { ...emptyProject(), objects: [...objects, { id: 't', type: 'text', layerId: 'arch', text: 'صالة', x: 0, y: 0, fontSize: 16, color: '#fff', rotation: 0 }] });
+  await page.keyboard.press('Control+e');
+  await page.getByTestId('print-scale').selectOption('100');
+  const [d] = await Promise.all([page.waitForEvent('download'), page.getByTestId('export-svg').click()]);
+  const chunks: Buffer[] = [];
+  for await (const c of await d.createReadStream()) chunks.push(c as Buffer);
+  const svg = Buffer.concat(chunks).toString('utf-8');
+  expect(svg).toContain('<svg');
+  expect(svg).toContain('صالة');
+  expect((svg.match(/<polygon/g) || []).length).toBeGreaterThan(3);
+  // المبنى 18م × 14م + سماكة الجدار، بمقياس 1:100 ← 182 مم على الأقل (مع هامش وشارات الأطوال)
+  const w = Number(/width="([\d.]+)mm"/.exec(svg)![1]);
+  expect(w).toBeGreaterThan(182);
+  expect(w).toBeLessThan(205); // تشمل شارات أطوال الجدران خارجها
+});

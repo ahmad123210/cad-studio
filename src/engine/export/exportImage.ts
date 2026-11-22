@@ -6,6 +6,7 @@
 
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import Konva from 'konva';
+import { vectorizeGroup, type VPrim } from './vectorize.ts';
 import {
   Point,
   ProjectObject,
@@ -204,6 +205,7 @@ export function exportDrawingImageDataURLImpl(this: CadEngine, options?: {
       this.renderBackgroundLayer();
       if (opts.includeGrid) this.renderGridLayer();
       this.renderObjectsLayer();
+      if (opts.includeDimensions === false) hideDimensions(this);
       if (opts.lineWeightsPx && Object.keys(opts.lineWeightsPx).length > 0) applyPrintLineWeights(this, opts.lineWeightsPx);
 
       // التقاط اللوحة بدقة فائقة
@@ -256,4 +258,60 @@ function applyPrintLineWeights(engine: CadEngine, weights: Record<string, number
     const sc = Math.abs(shape.getAbsoluteScale().x) || 1;
     shape.strokeWidth(weights[layerId] / sc);
   });
+}
+
+/** إخفاء الأبعاد من الإخراج عند إلغاء خيار «القياسات والأبعاد» (كان الخيار لا يؤثر) */
+function hideDimensions(engine: CadEngine): void {
+  const dimIds = new Set(engine.model.getObjects().filter((o) => o.type === 'dimension').map((o) => o.id));
+  if (!dimIds.size) return;
+  engine.objectsLayer.find((n: Konva.Node) => dimIds.has(n.id())).forEach((n) => n.visible(false));
+}
+
+/**
+ * عناصر الرسم المتجهية للتصدير (SVG): يُرسم المخطط بتكبير 1 وإزاحة 0 (إحداثيات الشاشة = إحداثيات العالم)
+ * بنفس دوال لوحة الرسم، ثم تُحوَّل كل أشكال الطبقة إلى خطوط ودوائر ونصوص.
+ */
+export function exportVectorPrimsImpl(
+  this: CadEngine,
+  opts: { visibleLayerIds?: string[]; includeDimensions?: boolean; theme?: 'dark' | 'light' }
+): { prims: VPrim[]; bounds: { minX: number; minY: number; maxX: number; maxY: number; width: number; height: number } } {
+  const savedCam = this.camera.getState();
+  const savedSelectedId = this.selectedObjectId;
+  const savedSelectedIds = this.selectedObjectIds;
+  const savedTheme = this.theme;
+  const savedW = this.stage.width();
+  const savedH = this.stage.height();
+  const originalLayers = this.model.getLayers().map((l) => ({ id: l.id, visible: l.visible }));
+  try {
+    this.endGesture();
+    this.disableCulling = true;
+    this.theme = opts.theme || 'light';
+    this.selectedObjectId = null;
+    this.selectedObjectIds = [];
+    if (opts.visibleLayerIds && opts.visibleLayerIds.length > 0) {
+      this.model.getLayers().forEach((layer) => {
+        layer.visible = opts.visibleLayerIds!.includes(layer.id);
+      });
+    }
+    const bounds = this.getDrawingBounds(false);
+    this.camera.setState({ zoom: 1, offsetX: 0, offsetY: 0 });
+    this.renderObjectsLayer();
+    if (opts.includeDimensions === false) hideDimensions(this);
+    const ids = new Set(this.model.getObjects().map((o) => o.id));
+    const prims = vectorizeGroup(this.objectsLayer, ids);
+    return { prims, bounds };
+  } finally {
+    this.disableCulling = false;
+    this.theme = savedTheme;
+    originalLayers.forEach((orig) => {
+      const l = this.model.getLayers().find((layer) => layer.id === orig.id);
+      if (l) l.visible = orig.visible;
+    });
+    this.camera.setState(savedCam);
+    this.selectedObjectId = savedSelectedId;
+    this.selectedObjectIds = savedSelectedIds;
+    this.stage.width(savedW);
+    this.stage.height(savedH);
+    this.render();
+  }
 }

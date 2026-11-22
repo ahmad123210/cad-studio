@@ -8,10 +8,18 @@ import Konva from 'konva';
 import type { Point } from '../../model/types.ts';
 import { getSymbolById } from '../../symbols/registry.ts';
 
-export type VPrim =
-  | { kind: 'poly'; pts: Point[]; closed: boolean; stroke?: string; fill?: string; width: number; dash?: number[] }
-  | { kind: 'circle'; c: Point; r: number; stroke?: string; fill?: string; width: number }
-  | { kind: 'text'; p: Point; text: string; size: number; anchor: 'start' | 'middle' | 'end'; rotation: number; fill?: string };
+interface PrimBase {
+  /** شفافية الشكل (0..1) */
+  opacity?: number;
+  /** معرف العنصر الذي ينتمي إليه الشكل (أقرب أب يحمل معرف عنصر) */
+  oid?: string;
+}
+export type VPrim = PrimBase &
+  (
+    | { kind: 'poly'; pts: Point[]; closed: boolean; stroke?: string; fill?: string; width: number; dash?: number[] }
+    | { kind: 'circle'; c: Point; r: number; stroke?: string; fill?: string; width: number }
+    | { kind: 'text'; p: Point; text: string; size: number; anchor: 'start' | 'middle' | 'end'; rotation: number; fill?: string; bold?: boolean }
+  );
 
 const colorOf = (v: unknown): string | undefined => (typeof v === 'string' && v && v !== 'transparent' ? v : undefined);
 
@@ -25,12 +33,26 @@ function arcPoints(cx: number, cy: number, r: number, startDeg: number, sweepDeg
   return out;
 }
 
-/** يحوّل كل الأشكال داخل مجموعة Konva إلى عناصر متجهية بإحداثيات المجموعة */
-export function vectorizeGroup(root: Konva.Group): VPrim[] {
-  const out: VPrim[] = [];
+/** يحوّل كل الأشكال داخل حاوية Konva إلى عناصر متجهية بإحداثياتها المطلقة. ids: معرفات العناصر لربط كل شكل بعنصره */
+export function vectorizeGroup(root: Konva.Container, ids?: Set<string>): VPrim[] {
+  const all: VPrim[] = [];
   root.find('Shape').forEach((node) => {
     const s = node as Konva.Shape;
-    if (!s.visible()) return;
+    if (!s.isVisible()) return;
+    const opacity = s.getAbsoluteOpacity();
+    if (opacity <= 0.001) return;
+    let oid: string | undefined;
+    if (ids) {
+      let cur: Konva.Node | null = s;
+      while (cur && cur !== root) {
+        if (ids.has(cur.id())) {
+          oid = cur.id();
+          break;
+        }
+        cur = cur.getParent();
+      }
+    }
+    const out: VPrim[] = [];
     const tr = s.getAbsoluteTransform().copy();
     const m = (p: Point) => tr.point(p);
     const sc = Math.abs(s.getAbsoluteScale().x) || 1;
@@ -133,12 +155,17 @@ export function vectorizeGroup(root: Konva.Group): VPrim[] {
         const anchor: 'start' | 'middle' | 'end' = align === 'center' ? 'middle' : align === 'right' ? 'end' : 'start';
         const lx = anchor === 'middle' ? w / 2 : anchor === 'end' ? w : 0;
         const p = m({ x: lx, y: (t.fontSize() || 10) * 0.85 });
-        if (t.text()) out.push({ kind: 'text', p, text: t.text(), size, anchor, rotation: s.getAbsoluteRotation(), fill: fill || stroke });
+        if (t.text()) out.push({ kind: 'text', p, text: t.text(), size, anchor, rotation: s.getAbsoluteRotation(), fill: fill || stroke, bold: /bold/.test(t.fontStyle()) });
         break;
       }
     }
+    for (const pr of out) {
+      if (opacity < 0.999) pr.opacity = opacity;
+      if (oid) pr.oid = oid;
+      all.push(pr);
+    }
   });
-  return out;
+  return all;
 }
 
 const cache = new Map<string, VPrim[]>();
