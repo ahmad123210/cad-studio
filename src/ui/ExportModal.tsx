@@ -24,6 +24,7 @@ import {
   Eye,
   RefreshCw,
   FileCode2,
+  Boxes,
 } from 'lucide-react';
 import { ProjectModel } from '../model/project.ts';
 import { CadEngine } from '../engine/renderer.ts';
@@ -37,6 +38,8 @@ import {
   PAPER_DIMENSIONS_MM,
 } from '../engine/exportEngine.ts';
 import { downloadDxfFile } from '../engine/dxfEngine.ts';
+import { exportIfc } from '../engine/export/ifcExport.ts';
+import { downloadText } from '../engine/export/svgExport.ts';
 import { STANDARD_SCALES } from '../engine/print/printLayout.ts';
 import type { PrintSettings } from '../model/types.ts';
 import type { PrintView } from '../engine/exportEngine.ts';
@@ -375,6 +378,15 @@ export const ExportModal: React.FC<ExportModalProps> = ({
     }
   };
 
+  // تصدير IFC مبسّط لبرامج BIM (جدران بسماكتها وارتفاعها، فتحات، أعمدة، غرف)
+  const handleExportIFC = () => {
+    const ifc = exportIfc(model.getObjects(), { projectName: projectName || model.getMeta().name, pixelsPerMeter: model.getMeta().scale || 50, quantities: model.getQuantitySettings() });
+    const clean = (projectName || 'project').replace(/[/\\?%*:|"<>]/g, '_');
+    downloadText(ifc, `${clean}.ifc`, 'application/x-step;charset=utf-8');
+    setExportSuccessMsg('تم تصدير ملف IFC لبرامج BIM (جدران، أبواب، نوافذ، أعمدة، غرف)');
+    setTimeout(() => setExportSuccessMsg(null), 4000);
+  };
+
   // تنفيذ تصدير BOQ CSV
   const handleExportCSV = () => {
     ExportEngine.exportBOQCSV(model);
@@ -597,6 +609,16 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                 >
                   <FileCode2 size={14} />
                   <span>AutoCAD (DXF)</span>
+                </button>
+
+                <button
+                  data-testid="export-ifc"
+                  onClick={handleExportIFC}
+                  className="px-3 py-1.5 bg-violet-950/70 hover:bg-violet-900 text-violet-300 rounded-lg font-medium transition-colors flex items-center gap-1.5 border border-violet-700/60"
+                  title="IFC2X3 مبسّط لبرامج BIM: Revit وArchiCAD وBIMvision — الجدران بسماكتها وارتفاعها والفتحات والأعمدة والغرف"
+                >
+                  <Boxes size={14} />
+                  <span>BIM (IFC)</span>
                 </button>
               </div>
 
