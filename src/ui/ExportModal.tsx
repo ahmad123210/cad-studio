@@ -39,6 +39,29 @@ import {
 import { downloadDxfFile } from '../engine/dxfEngine.ts';
 import { STANDARD_SCALES } from '../engine/print/printLayout.ts';
 import type { PrintSettings } from '../model/types.ts';
+import type { PrintView } from '../engine/exportEngine.ts';
+
+/** تصغير الشعار المرفوع إلى PNG بعرض/ارتفاع أقصى 400 بكسل (حجم ملف المشروع) */
+function shrinkImage(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error);
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('صورة غير صالحة'));
+      img.onload = () => {
+        const k = Math.min(1, 400 / Math.max(img.width, img.height));
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(img.width * k));
+        c.height = Math.max(1, Math.round(img.height * k));
+        c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height);
+        resolve(c.toDataURL('image/png'));
+      };
+      img.src = String(reader.result);
+    };
+    reader.readAsDataURL(file);
+  });
+}
 
 /** سماكات خطوط الطباعة المعيارية (مم) */
 const LINE_WEIGHTS_MM = [0.13, 0.18, 0.25, 0.35, 0.5, 0.7, 1.0];
@@ -107,6 +130,13 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   const [northAngle, setNorthAngle] = useState<number>(0);
   const [lineWeights, setLineWeights] = useState<Record<string, number>>({});
   const [previewInfo, setPreviewInfo] = useState<{ scale: number; fits: boolean } | null>(null);
+  // الشركة والشعار والمراجعات والمناظير وكل اللوحات
+  const [companyName, setCompanyName] = useState('');
+  const [logoDataUrl, setLogoDataUrl] = useState<string>('');
+  const [revisions, setRevisions] = useState<{ rev: string; date: string; description: string }[]>([]);
+  const [views, setViews] = useState<PrintView[]>([]);
+  const [allSheets, setAllSheets] = useState(false);
+  const sheetList = model.getSheetSummaries();
   const loadedSnapshot = useRef<string>('');
 
   /** الإعدادات الحالية بالصيغة المحفوظة مع المشروع */
@@ -118,6 +148,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({
     northAngle,
     lineWeights,
     titleBlock: { projectName, drawingTitle, discipline, sheetNumber, revision, engineer, client, stampStatus },
+    companyName,
+    logoDataUrl: logoDataUrl || undefined,
+    revisions,
+    views,
+    allSheets,
   });
   /** حفظ الإعدادات مع المشروع إن تغيرت منذ فتح النافذة */
   const persistPrintSettings = () => {
@@ -166,9 +201,24 @@ export const ExportModal: React.FC<ExportModalProps> = ({
       setEngineer(v.engineer);
       setClient(v.client);
       setStampStatus(v.stampStatus);
+      const sheetIds = new Set(model.getSheetSummaries().map((s) => s.id));
+      const extra = {
+        companyName: ps.companyName || '',
+        logoDataUrl: ps.logoDataUrl || undefined,
+        revisions: ps.revisions || [],
+        // منظور من لوحة حُذفت لا يُستعاد
+        views: (ps.views || []).filter((vw) => !vw.sheetId || sheetIds.has(vw.sheetId)),
+        allSheets: Boolean(ps.allSheets),
+      };
+      setCompanyName(extra.companyName);
+      setLogoDataUrl(extra.logoDataUrl || '');
+      setRevisions(extra.revisions);
+      setViews(extra.views);
+      setAllSheets(extra.allSheets);
       loadedSnapshot.current = JSON.stringify({
         paperFormat: v.paperFormat, orientation: v.orientation, theme: v.theme, printScale: v.printScale, northAngle: v.northAngle, lineWeights: v.lineWeights,
         titleBlock: { projectName: v.projectName, drawingTitle: v.drawingTitle, discipline: v.discipline, sheetNumber: v.sheetNumber, revision: v.revision, engineer: v.engineer, client: v.client, stampStatus: v.stampStatus },
+        ...extra,
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -193,6 +243,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({
     printScale: printScale > 0 ? printScale : 'fit',
     northAngle,
     lineWeights,
+    companyName: companyName.trim() || undefined,
+    logoDataUrl: logoDataUrl || undefined,
+    revisions: revisions.filter((r) => r.rev || r.description),
+    views: allSheets ? [] : views,
+    allSheets: allSheets && sheetList.length > 1,
     titleBlock: {
       projectName,
       drawingTitle,
@@ -269,6 +324,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({
     printScale,
     northAngle,
     lineWeights,
+    companyName,
+    logoDataUrl,
+    revisions,
+    views,
+    allSheets,
   ]);
 
   if (!isOpen) return null;
@@ -636,6 +696,39 @@ export const ExportModal: React.FC<ExportModalProps> = ({
 
               {includeTitleBlock && (
                 <div className="flex flex-col gap-3 text-xs">
+                  {/* الشركة/المكتب والشعار */}
+                  <div className="flex items-end gap-2">
+                    <div className="flex-1">
+                      <label className="text-xs font-semibold text-neutral-200 block mb-1">الشركة / المكتب الهندسي:</label>
+                      <input data-testid="company-name" type="text" value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="اسم المكتب (اختياري)" className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none focus:border-sky-500" />
+                    </div>
+                    <label className="shrink-0 cursor-pointer" title="شعار الشركة (PNG/JPG)">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        data-testid="logo-input"
+                        className="hidden"
+                        onChange={async (e) => {
+                          const f = e.target.files?.[0];
+                          if (!f) return;
+                          try {
+                            setLogoDataUrl(await shrinkImage(f));
+                          } catch (err) {
+                            alert((err as Error).message);
+                          }
+                          e.target.value = '';
+                        }}
+                      />
+                      <span className="w-16 h-[34px] rounded-lg border border-dashed border-neutral-600 hover:border-sky-500 flex items-center justify-center overflow-hidden bg-neutral-800">
+                        {logoDataUrl ? <img src={logoDataUrl} alt="الشعار" className="max-w-full max-h-full object-contain" /> : <span className="text-[10px] text-neutral-400">+ شعار</span>}
+                      </span>
+                    </label>
+                    {logoDataUrl && (
+                      <button onClick={() => setLogoDataUrl('')} className="shrink-0 text-[10px] text-rose-300 hover:text-rose-200 pb-2" title="إزالة الشعار">
+                        إزالة
+                      </button>
+                    )}
+                  </div>
                   <div>
                     <label className="text-xs font-semibold text-neutral-200 block mb-1">اسم المشروع:</label>
                     <input
@@ -741,7 +834,94 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                       </label>
                     </div>
                   </div>
+
+                  {/* جدول المراجعات */}
+                  <div data-testid="revisions">
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs font-semibold text-neutral-200">جدول المراجعات:</label>
+                      <button
+                        onClick={() => setRevisions([...revisions, { rev: String(revisions.length).padStart(2, '0'), date: new Date().toISOString().split('T')[0], description: '' }])}
+                        className="text-[11px] text-sky-300 hover:text-sky-200"
+                      >
+                        + إضافة مراجعة
+                      </button>
+                    </div>
+                    {revisions.length === 0 && <div className="text-[11px] text-neutral-500">لا توجد مراجعات (لن يظهر الجدول على اللوحة).</div>}
+                    {revisions.map((r, i) => (
+                      <div key={i} className="flex items-center gap-1 mb-1">
+                        <input value={r.rev} onChange={(e) => setRevisions(revisions.map((x, j) => (j === i ? { ...x, rev: e.target.value } : x)))} className="w-12 bg-neutral-800 border border-neutral-700 rounded px-1.5 py-1 text-center font-mono-cad" aria-label="رقم المراجعة" />
+                        <input type="date" value={r.date} onChange={(e) => setRevisions(revisions.map((x, j) => (j === i ? { ...x, date: e.target.value } : x)))} className="w-32 bg-neutral-800 border border-neutral-700 rounded px-1.5 py-1 font-mono-cad" aria-label="تاريخ المراجعة" />
+                        <input value={r.description} placeholder="الوصف" onChange={(e) => setRevisions(revisions.map((x, j) => (j === i ? { ...x, description: e.target.value } : x)))} className="flex-1 min-w-0 bg-neutral-800 border border-neutral-700 rounded px-1.5 py-1" aria-label="وصف المراجعة" />
+                        <button onClick={() => setRevisions(revisions.filter((_, j) => j !== i))} className="text-rose-300 px-1" title="حذف المراجعة">✕</button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
+              )}
+            </div>
+
+            <div className="h-px bg-neutral-800" />
+
+            {/* المناظير على اللوحة وكل اللوحات */}
+            <div className="flex flex-col gap-2 text-xs" data-testid="print-views">
+              <h4 className="text-xs font-bold text-white">المناظير على اللوحة</h4>
+              {sheetList.length > 1 && (
+                <label className="flex items-center gap-2 p-2 rounded-lg bg-neutral-800/60 border border-neutral-800 cursor-pointer">
+                  <input type="checkbox" data-testid="all-sheets" checked={allSheets} onChange={(e) => setAllSheets(e.target.checked)} className="accent-sky-500" />
+                  <span>طباعة كل اللوحات ({sheetList.length}) في ملف PDF واحد — صفحة لكل لوحة</span>
+                </label>
+              )}
+              {!allSheets && (
+                <>
+                  <p className="text-[11px] text-neutral-500">بدون مناظير: تُطبع اللوحة الحالية كاملة. أضف مناظير لوضع أكثر من عرض بمقاييس مختلفة على الورقة نفسها (مثل مسقط 1:100 وتفصيلة 1:20).</p>
+                  {views.map((v, i) => (
+                    <div key={v.id} className="flex flex-col gap-1 p-2 rounded-lg bg-neutral-800/50 border border-neutral-800">
+                      <div className="flex items-center gap-1">
+                        <input value={v.title} onChange={(e) => setViews(views.map((x, j) => (j === i ? { ...x, title: e.target.value } : x)))} placeholder={`منظور ${i + 1}`} className="flex-1 min-w-0 bg-neutral-900 border border-neutral-700 rounded px-1.5 py-1" aria-label="عنوان المنظور" />
+                        <select value={v.scale} onChange={(e) => setViews(views.map((x, j) => (j === i ? { ...x, scale: Number(e.target.value) } : x)))} className="bg-neutral-900 border border-neutral-700 rounded px-1 py-1 font-mono-cad" aria-label="مقياس المنظور">
+                          <option value={0}>ملاءمة</option>
+                          {STANDARD_SCALES.map((sc) => (
+                            <option key={sc} value={sc}>1:{sc}</option>
+                          ))}
+                        </select>
+                        <button onClick={() => setViews(views.filter((_, j) => j !== i))} className="text-rose-300 px-1" title="حذف المنظور">✕</button>
+                      </div>
+                      <div className="flex items-center gap-1 text-[11px] text-neutral-400">
+                        <span>من:</span>
+                        <select value={v.sheetId || ''} onChange={(e) => setViews(views.map((x, j) => (j === i ? { ...x, sheetId: e.target.value || undefined, region: undefined } : x)))} className="bg-neutral-900 border border-neutral-700 rounded px-1 py-0.5 max-w-40" aria-label="لوحة المنظور">
+                          <option value="">اللوحة الحالية</option>
+                          {sheetList.map((sh) => (
+                            <option key={sh.id} value={sh.id}>{sh.name}</option>
+                          ))}
+                        </select>
+                        <span>{v.region ? '· منطقة محددة' : '· كامل اللوحة'}</span>
+                      </div>
+                    </div>
+                  ))}
+                  <div className="flex gap-1.5">
+                    <button
+                      data-testid="add-view-full"
+                      onClick={() => setViews([...views, { id: `v_${Date.now().toString(36)}`, title: model.getSheetSummaries().find((x) => x.id === model.getActiveSheetId())?.name || 'المسقط', sheetId: model.getActiveSheetId(), scale: 0 }])}
+                      className="flex-1 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 border border-neutral-700"
+                    >
+                      + منظور لكامل اللوحة
+                    </button>
+                    <button
+                      data-testid="add-view-current"
+                      disabled={!engine}
+                      onClick={() => {
+                        if (!engine) return;
+                        const a = engine.camera.screenToWorld({ x: 0, y: 0 });
+                        const b = engine.camera.screenToWorld({ x: engine.stage.width(), y: engine.stage.height() });
+                        setViews([...views, { id: `v_${Date.now().toString(36)}`, title: 'تفصيلة', sheetId: model.getActiveSheetId(), scale: 0, region: { minX: Math.min(a.x, b.x), minY: Math.min(a.y, b.y), maxX: Math.max(a.x, b.x), maxY: Math.max(a.y, b.y) } }]);
+                      }}
+                      className="flex-1 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 border border-neutral-700"
+                      title="يأخذ المنطقة الظاهرة على الشاشة الآن (كبّر على التفصيلة قبل فتح نافذة الطباعة)"
+                    >
+                      + منظور من العرض الحالي
+                    </button>
+                  </div>
+                </>
               )}
             </div>
 

@@ -896,6 +896,32 @@ export class ProjectModel {
     this.notify();
   }
 
+  /**
+   * تنفيذ دالة متزامنة كأن لوحة أخرى هي النشطة (للطباعة/التصدير)، ثم إعادة اللوحة الأصلية كما هي.
+   * بخلاف setActiveSheet: لا يمسح سجل التراجع ولا يُبلغ المستمعين ولا يُعلِّم المشروع كمعدّل.
+   */
+  public withSheetTemporarily<T>(sheetId: string, fn: () => T): T {
+    if (sheetId === this.activeSheetId) return fn();
+    const target = this.sheets.find((s) => s.id === sheetId);
+    if (!target) return fn();
+    this.syncCurrentSheetFromActiveState();
+    const saved = { objects: this.objects, bg: this.backgroundImage, meta: this.meta, active: this.activeSheetId };
+    this.objects = target.objects || [];
+    this.backgroundImage = target.backgroundImage ?? null;
+    if (typeof target.scale === 'number' && target.scale > 0) this.meta = { ...this.meta, scale: target.scale };
+    this.activeSheetId = sheetId;
+    this.version++;
+    try {
+      return fn();
+    } finally {
+      this.objects = saved.objects;
+      this.backgroundImage = saved.bg;
+      this.meta = saved.meta;
+      this.activeSheetId = saved.active;
+      this.version++;
+    }
+  }
+
   public addSheet(name?: string): string {
     this.syncCurrentSheetFromActiveState();
     const nextNum = this.sheets.length + 1;

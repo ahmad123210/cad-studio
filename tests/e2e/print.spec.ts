@@ -32,3 +32,39 @@ test('print dialog: real scale auto-fit, warning when it does not fit, settings 
   await expect(page.getByTestId('print-scale')).toHaveValue('100');
   await expect(page.getByTestId('north-angle')).toHaveValue('30');
 });
+
+test('company, revisions and views are saved; all sheets export as one multi-page PDF', async ({ page }) => {
+  const sheet = (id: string, name: string, dx: number) => ({ id, name, scale: 50, objects: objects.map((o) => ({ ...o, id: `${o.id}_${id}`, start: { x: o.start.x + dx, y: o.start.y }, end: { x: o.end.x + dx, y: o.end.y } })) });
+  const sheets = [sheet('s1', 'المسقط الأرضي', 0), sheet('s2', 'المسقط الأول', 0), sheet('s3', 'السطح', 0)];
+  await openFresh(page, { ...emptyProject(), objects: sheets[0].objects, sheets, activeSheetId: 's1' });
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('print-scale-info')).toBeVisible({ timeout: 15000 });
+
+  await page.getByTestId('company-name').fill('مكتب الأفق');
+  await page.getByText('+ إضافة مراجعة').click();
+  await page.getByLabel('وصف المراجعة').fill('إصدار أولي');
+  await page.getByTestId('add-view-full').click();
+  await page.getByTestId('add-view-current').click();
+  await expect(page.getByLabel('عنوان المنظور')).toHaveCount(2);
+
+  // كل اللوحات: 3 صفحات مخطط (بدون صفحات الكميات والرموز)
+  await page.getByTestId('all-sheets').check();
+  await page.locator('#includeBOQ').uncheck();
+  await page.locator('#includeSymbolsLegend').uncheck();
+  const [download] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), page.getByText('تنزيل المخطط الهندسي').click()]);
+  const chunks: Buffer[] = [];
+  for await (const c of await download.createReadStream()) chunks.push(c as Buffer);
+  const pdf = Buffer.concat(chunks).toString('latin1');
+  expect(pdf.startsWith('%PDF')).toBe(true);
+  expect((pdf.match(/\/Type \/Page\b/g) || []).length).toBe(3);
+
+  await page.locator('button:has(svg.lucide-x)').first().click();
+  await page.keyboard.press('Control+s');
+  await page.waitForTimeout(300);
+  const data = JSON.parse((await page.evaluate(() => localStorage.getItem('cad_project_proj_default')))!);
+  expect(data.printSettings.companyName).toBe('مكتب الأفق');
+  expect(data.printSettings.revisions[0].description).toBe('إصدار أولي');
+  expect(data.printSettings.views).toHaveLength(2);
+  expect(data.printSettings.views[1].region).toBeTruthy();
+  expect(data.printSettings.allSheets).toBe(true);
+});

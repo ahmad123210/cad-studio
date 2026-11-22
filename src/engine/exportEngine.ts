@@ -19,6 +19,7 @@ import { ROUTE_KINDS_META, calculateRoutePixelLength } from '../symbols/routes.t
 import { SnapEngine } from './snap.ts';
 import { fitStandardScale, fitsAtScale, mmPerWorldPx, niceScaleBar } from './print/printLayout.ts';
 import { renderSymbolIcon } from './print/symbolIcon.ts';
+import { computeQuantities, lineTotal, BOQ_SECTION_TITLES, type BoqLine, type BoqSection } from '../model/quantities.ts';
 
 export type PaperFormat = 'a4' | 'a3' | 'a2' | 'a1' | 'a0' | 'letter';
 export type Orientation = 'landscape' | 'portrait';
@@ -62,6 +63,27 @@ export interface ExportPDFOptions {
   northAngle?: number;
   /** سماكة خط الطباعة لكل طبقة بالمم (الطبقات غير المذكورة = تلقائي) */
   lineWeights?: Record<string, number>;
+  /** عدة مناظير على اللوحة نفسها (فارغ = منظور واحد لكامل اللوحة الحالية) */
+  views?: PrintView[];
+  /** اسم الشركة/المكتب وشعاره (DataURL) في الخرطوشة */
+  companyName?: string;
+  logoDataUrl?: string;
+  /** جدول المراجعات أعلى الخرطوشة */
+  revisions?: { rev: string; date: string; description: string }[];
+  /** طباعة كل لوحات المشروع في ملف PDF واحد (صفحة لكل لوحة) */
+  allSheets?: boolean;
+}
+
+/** منظور على اللوحة: لوحة المصدر، والمنطقة (أو كامل المخطط)، والمقياس */
+export interface PrintView {
+  id: string;
+  title: string;
+  /** لوحة المصدر (افتراضياً اللوحة الحالية) */
+  sheetId?: string;
+  /** منطقة بإحداثيات العالم؛ غير موجودة = كامل عناصر اللوحة */
+  region?: { minX: number; minY: number; maxX: number; maxY: number };
+  /** 0 = ملاءمة تلقائية */
+  scale: number;
 }
 
 /** نتيجة رسم اللوحة: المقياس المستخدم وهل يتسع المخطط بالكامل */
@@ -103,10 +125,30 @@ export class ExportEngine {
       compress: true,
     });
 
-    // 1. رسم اللوحة الأولى (المخطط الهندسي + الخرطوشة)
-    const drawingCanvas = await this.renderSheetToCanvas(engine, model, options, pdfW, pdfH);
-    const drawingImgData = drawingCanvas.toDataURL('image/jpeg', 0.95);
-    doc.addImage(drawingImgData, 'JPEG', 0, 0, pdfW, pdfH, undefined, 'FAST');
+    // 1. لوحة المخطط (أو كل اللوحات: صفحة لكل لوحة بعنوانها ورقم متسلسل)
+    const pages: ExportPDFOptions[] = [];
+    if (options.allSheets) {
+      const sheets = model.getSheetSummaries();
+      sheets.forEach((sh, i) => {
+        pages.push({
+          ...options,
+          views: [{ id: sh.id, title: '', sheetId: sh.id, scale: typeof options.printScale === 'number' ? options.printScale : 0 }],
+          titleBlock: {
+            ...options.titleBlock,
+            drawingTitle: sh.name,
+            sheetNumber: sheets.length > 1 ? `${options.titleBlock.sheetNumber}-${String(i + 1).padStart(2, '0')}` : options.titleBlock.sheetNumber,
+          },
+        });
+      });
+    } else {
+      pages.push(options);
+    }
+    for (let i = 0; i < pages.length; i++) {
+      if (i > 0) doc.addPage(options.paperFormat, options.orientation);
+      const drawingCanvas = await this.renderSheetToCanvas(engine, model, pages[i], pdfW, pdfH);
+      const drawingImgData = drawingCanvas.toDataURL('image/jpeg', 0.95);
+      doc.addImage(drawingImgData, 'JPEG', 0, 0, pdfW, pdfH, undefined, 'FAST');
+    }
 
     // 2. إذا طُلب إرفاق جدول الرموز المستخدمة كصفحة مستقلة (Symbols Legend Sheet - البند 9)
     if (options.includeSymbolsSheet || options.includeSymbolsLegendSheet) {
@@ -118,10 +160,10 @@ export class ExportEngine {
 
     // 3. إذا طُلب إرفاق جدول الكميات كصفحة (BOQ Sheet - البند 7)
     if (options.includeBOQSheet) {
-      doc.addPage(options.paperFormat, options.orientation);
-      const boqCanvas = this.renderBOQSheetToCanvas(model, options, pdfW, pdfH);
-      const boqImgData = boqCanvas.toDataURL('image/jpeg', 0.95);
-      doc.addImage(boqImgData, 'JPEG', 0, 0, pdfW, pdfH, undefined, 'FAST');
+      for (const boqCanvas of this.renderBOQPagesToCanvases(model, options, pdfW, pdfH)) {
+        doc.addPage(options.paperFormat, options.orientation);
+        doc.addImage(boqCanvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, pdfW, pdfH, undefined, 'FAST');
+      }
     }
 
     // تنزيل الملف
@@ -162,86 +204,28 @@ export class ExportEngine {
    * تصدير جدول الكميات بصيغة CSV متوافقة مع Excel مع دعم UTF-8 الكامل للغة العربية
    */
   public static exportBOQCSV(model: ProjectModel): void {
+    // نفس بنود نافذة الكميات (model/quantities.ts) لضمان تطابق كل المخرجات
     const meta = model.getMeta();
-    const pixelsPerMeter = meta.scale || 50;
-    const allObjects = model.getObjects();
-    const layers = model.getLayers();
-
-    // 1. تجميع الرموز
-    const symbols = allObjects.filter((o) => o.type === 'symbol') as SymbolObject[];
-    const symbolsGrouped: Record<string, { kind: string; count: number; labels: Set<string>; layers: Set<string> }> = {};
-    symbols.forEach((sym) => {
-      if (!symbolsGrouped[sym.symbolKind]) {
-        symbolsGrouped[sym.symbolKind] = { kind: sym.symbolKind, count: 0, labels: new Set(), layers: new Set() };
-      }
-      symbolsGrouped[sym.symbolKind].count++;
-      if (sym.label) symbolsGrouped[sym.symbolKind].labels.add(sym.label);
-      const lyr = layers.find((l) => l.id === sym.layerId);
-      if (lyr) symbolsGrouped[sym.symbolKind].layers.add(lyr.name);
+    const prices = model.getQuantitySettings().prices;
+    const report = computeQuantities(model.getObjects(), {
+      pixelsPerMeter: meta.scale || 50,
+      settings: model.getQuantitySettings(),
+      symbolName: (k) => getSymbolById(k)?.name || k,
+      routeMeta: (k) => ROUTE_KINDS_META[k],
     });
-
-    // 2. تجميع المسارات
-    const routes = allObjects.filter((o) => o.type === 'route') as RouteObject[];
-    const routesGrouped: Record<string, { kind: string; material: string; diameter: number; count: number; totalLength: number }> = {};
-    routes.forEach((r) => {
-      const metaRoute = ROUTE_KINDS_META[r.routeKind];
-      const mat = r.material || metaRoute?.defaultMaterial || 'معياري';
-      const dia = r.diameter || metaRoute?.defaultDiameter || 20;
-      const key = `${r.routeKind}_${mat}_${dia}`;
-      const len = r.lengthCalculated || calculateRoutePixelLength(r.points) / pixelsPerMeter;
-
-      if (!routesGrouped[key]) {
-        routesGrouped[key] = { kind: metaRoute?.name || r.routeKind, material: mat, diameter: dia, count: 0, totalLength: 0 };
+    const esc = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`;
+    let csv = `\uFEFFجدول الكميات - مشروع ${meta.name}\nالتاريخ,${new Date().toLocaleDateString('ar-EG')}\n\n`;
+    csv += 'الرقم,البند,الوحدة,الكمية,سعر الوحدة,الإجمالي,ملاحظة\n';
+    let n = 0;
+    for (const sec of Object.keys(BOQ_SECTION_TITLES) as BoqSection[]) {
+      const ls = report.lines.filter((l) => l.section === sec);
+      if (!ls.length) continue;
+      csv += `${esc(BOQ_SECTION_TITLES[sec])}\n`;
+      for (const l of ls) {
+        const t = lineTotal(l, prices);
+        csv += [++n, esc(l.name), esc(l.unit), l.qty, prices[l.key] ?? '', t ?? '', esc(l.note || '')].join(',') + '\n';
       }
-      routesGrouped[key].count++;
-      routesGrouped[key].totalLength += len;
-    });
-
-    // 3. ملخص الجدران
-    const walls = allObjects.filter((o) => o.type === 'wall') as WallObject[];
-    const doors = allObjects.filter((o) => o.type === 'door') as DoorObject[];
-    const windows = allObjects.filter((o) => o.type === 'window') as WindowObject[];
-    const totalWallLength = walls.reduce((sum, w) => sum + SnapEngine.distance(w.start, w.end), 0) / pixelsPerMeter;
-    const totalRoutesLength = Object.values(routesGrouped).reduce((sum, r) => sum + r.totalLength, 0);
-
-    // بناء ملف CSV مع BOM للدعم العربي
-    const bom = '\uFEFF';
-    let csv = `${bom}جدول حصر الكميات والمواصفات الهندسية (Bill of Quantities - BOQ)\n`;
-    csv += `اسم المشروع,${meta.name}\n`;
-    csv += `تاريخ التصدير,${new Date().toLocaleDateString('ar-EG')}\n`;
-    csv += `مقياس الرسم,${pixelsPerMeter.toFixed(2)} بكسل / متر\n`;
-    csv += `وحدة القياس,${meta.unit === 'meter' ? 'متر' : meta.unit}\n\n`;
-
-    // جدول الرموز
-    csv += `=== 1. جدول حصر الرموز الهندسية (Symbols Schedule) ===\n`;
-    csv += `م,اسم الرمز بالعربي,الاسم بالإنجليزي,التخصص,الطبقة,العدد,تسميات وملاحظات\n`;
-    let symIdx = 1;
-    for (const item of Object.values(symbolsGrouped)) {
-      const def = getSymbolById(item.kind);
-      const cat = def ? CATEGORIES_META[def.category]?.name || 'عام' : 'عام';
-      const lyrNames = Array.from(item.layers).join(' | ');
-      const lbls = Array.from(item.labels).join(' | ');
-      csv += `${symIdx++},"${def?.name || item.kind}","${def?.nameEn || ''}","${cat}","${lyrNames}",${item.count},"${lbls}"\n`;
     }
-
-    // جدول المسارات
-    csv += `\n=== 2. جدول أطوال شبكات الكابلات والمواسير (Routes & Piping Schedule) ===\n`;
-    csv += `م,نوع الشبكة,المواصفة / المادة,المقاس (مم),عدد الخطوط,إجمالي الطول الحقيقي (متر)\n`;
-    let routeIdx = 1;
-    for (const r of Object.values(routesGrouped)) {
-      csv += `${routeIdx++},"${r.kind}","${r.material}",${r.diameter},${r.count},${r.totalLength.toFixed(2)}\n`;
-    }
-
-    // ملخص العناصر المعمارية
-    csv += `\n=== 3. ملخص العناصر المعمارية والإنشائية ===\n`;
-    csv += `العنصر,الكمية,الوحدة\n`;
-    csv += `إجمالي عدد الجدران,${walls.length},جدار\n`;
-    csv += `إجمالي أطوال الجدران,${totalWallLength.toFixed(2)},متر طولي\n`;
-    csv += `إجمالي عدد الأبواب,${doors.length},باب\n`;
-    csv += `إجمالي عدد النوافذ,${windows.length},نافذة\n`;
-    csv += `إجمالي عدد الرموز الهندسية,${symbols.length},قطعة\n`;
-    csv += `إجمالي أطوال شبكات الكهروميكانيك,${totalRoutesLength.toFixed(2)},متر طولي\n`;
-
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -250,6 +234,7 @@ export class ExportEngine {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   }
 
   /**
@@ -274,6 +259,14 @@ export class ExportEngine {
     canvas.height = canvasH;
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('Could not create canvas 2d context');
+    let logoImg: HTMLImageElement | null = null;
+    if (options.logoDataUrl) {
+      try {
+        logoImg = await this.loadImage(options.logoDataUrl);
+      } catch {
+        logoImg = null;
+      }
+    }
 
     // 1. تحديد ألوان السمة (Theme)
     let bgColor = '#ffffff';
@@ -335,41 +328,81 @@ export class ExportEngine {
     const drawingAreaW = canvasW - innerMarginPx * 2 - 4 * pxPerMm;
     const drawingAreaH = canvasH - innerMarginPx * 2 - 4 * pxPerMm - titleBlockHeightPx;
 
-    // 4. رسم المخطط بمقياس حقيقي: 1 م في الواقع = 1000/S مم على الورق
-    const ppm = model.getMeta().scale || 50;
-    const bounds = engine.getDrawingBounds(options.includeBackground);
-    const areaWmm = drawingAreaW / pxPerMm;
-    const areaHmm = drawingAreaH / pxPerMm;
-    const printScale =
-      typeof options.printScale === 'number' && options.printScale > 0
-        ? options.printScale
-        : fitStandardScale(bounds.width, bounds.height, areaWmm * 0.94, areaHmm * 0.94, ppm);
-    const info: SheetRenderInfo = { scale: printScale, fits: fitsAtScale(bounds.width, bounds.height, areaWmm, areaHmm, printScale, ppm) };
-    (canvas as HTMLCanvasElement & { printInfo?: SheetRenderInfo }).printInfo = info;
-    options = { ...options, titleBlock: { ...options.titleBlock, scaleText: String(printScale) } };
-
-    // كثافة صورة المخطط: نفس كثافة الصفحة مع سقف لعدد البكسلات (ورق A1/A0)
+    // 4. المناظير بمقياس حقيقي: 1 م في الواقع = 1000/S مم على الورق.
+    // كل منظور يُرسم من لوحته (تبديل مؤقت لا يمس سجل التراجع) في خانته من مساحة الرسم.
+    const views: PrintView[] =
+      options.views && options.views.length > 0
+        ? options.views
+        : [{ id: 'main', title: '', scale: typeof options.printScale === 'number' ? options.printScale : 0 }];
+    const multi = views.length > 1;
+    const gapPx = multi ? 6 * pxPerMm : 0;
+    const captionPx = multi ? 9 * pxPerMm : 0;
+    const slotW = (drawingAreaW - gapPx * (views.length - 1)) / views.length;
+    const slotH = drawingAreaH - captionPx;
+    // كثافة الصورة: نفس كثافة الصفحة مع سقف إجمالي لعدد البكسلات (ورق A1/A0)
     let renderPxPerMm = pxPerMm;
     const maxPixels = 36e6;
     if (drawingAreaW * drawingAreaH > maxPixels) renderPxPerMm *= Math.sqrt(maxPixels / (drawingAreaW * drawingAreaH));
-    const imgW = Math.max(1, Math.round(areaWmm * renderPxPerMm));
-    const imgH = Math.max(1, Math.round(areaHmm * renderPxPerMm));
     const lineWeightsPx: Record<string, number> = {};
     for (const [lid, mm] of Object.entries(options.lineWeights || {})) if (mm > 0) lineWeightsPx[lid] = mm * renderPxPerMm;
-    const drawingCanvas = engine.exportDrawingCanvas({
-      pixelRatio: 1,
-      includeGrid: options.includeGrid,
-      includeBackground: options.includeBackground,
-      includeDimensions: options.includeDimensions,
-      visibleLayerIds: options.visibleLayerIds,
-      customWidth: imgW,
-      customHeight: imgH,
-      camera: { centerX: bounds.minX + bounds.width / 2, centerY: bounds.minY + bounds.height / 2, zoom: renderPxPerMm * mmPerWorldPx(printScale, ppm) },
-      lineWeightsPx,
-      theme: options.theme === 'white' ? 'light' : 'dark',
-    });
-    ctx.drawImage(drawingCanvas, drawingAreaX, drawingAreaY, drawingAreaW, drawingAreaH);
 
+    const results: { scale: number; fits: boolean }[] = [];
+    views.forEach((view, i) => {
+      // ترتيب من اليمين لليسار
+      const slotX = drawingAreaX + drawingAreaW - (i + 1) * slotW - i * gapPx;
+      const areaWmm = slotW / pxPerMm;
+      const areaHmm = slotH / pxPerMm;
+      const sheetId = view.sheetId || model.getActiveSheetId();
+      const r = model.withSheetTemporarily(sheetId, () => {
+        const ppm = model.getMeta().scale || 50;
+        const b = view.region
+          ? { ...view.region, width: view.region.maxX - view.region.minX, height: view.region.maxY - view.region.minY }
+          : engine.getDrawingBounds(options.includeBackground);
+        const sc = view.scale > 0 ? view.scale : fitStandardScale(b.width, b.height, areaWmm * 0.94, areaHmm * 0.94, ppm);
+        const imgW = Math.max(1, Math.round(areaWmm * renderPxPerMm));
+        const imgH = Math.max(1, Math.round(areaHmm * renderPxPerMm));
+        const img = engine.exportDrawingCanvas({
+          pixelRatio: 1,
+          includeGrid: options.includeGrid,
+          includeBackground: options.includeBackground,
+          includeDimensions: options.includeDimensions,
+          visibleLayerIds: options.visibleLayerIds,
+          customWidth: imgW,
+          customHeight: imgH,
+          camera: { centerX: b.minX + b.width / 2, centerY: b.minY + b.height / 2, zoom: renderPxPerMm * mmPerWorldPx(sc, ppm) },
+          lineWeightsPx,
+          theme: options.theme === 'white' ? 'light' : 'dark',
+        });
+        return { img, scale: sc, fits: fitsAtScale(b.width, b.height, areaWmm, areaHmm, sc, ppm) };
+      });
+      ctx.drawImage(r.img, slotX, drawingAreaY, slotW, slotH);
+      results.push({ scale: r.scale, fits: r.fits });
+      if (multi) {
+        ctx.strokeStyle = borderInnerColor;
+        ctx.lineWidth = 0.25 * pxPerMm;
+        ctx.strokeRect(slotX, drawingAreaY, slotW, slotH);
+        const cap = `${view.title || `منظور ${i + 1}`} — 1:${r.scale}`;
+        ctx.fillStyle = textColor;
+        ctx.font = `bold ${Math.round(3.2 * pxPerMm)}px 'Cairo', sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const cy = drawingAreaY + slotH + captionPx / 2;
+        ctx.fillText(cap, slotX + slotW / 2, cy, slotW - 4 * pxPerMm);
+        const tw = Math.min(ctx.measureText(cap).width, slotW - 4 * pxPerMm);
+        ctx.lineWidth = 0.3 * pxPerMm;
+        ctx.beginPath();
+        ctx.moveTo(slotX + slotW / 2 - tw / 2, cy + 2.2 * pxPerMm);
+        ctx.lineTo(slotX + slotW / 2 + tw / 2, cy + 2.2 * pxPerMm);
+        ctx.stroke();
+        ctx.textBaseline = 'alphabetic';
+      }
+    });
+    // الشاشة: إعادة رسم اللوحة الحالية بعد أي تبديل مؤقت
+    engine.render();
+    const printScale = results[0].scale;
+    const info: SheetRenderInfo = { scale: printScale, fits: results.every((r) => r.fits) };
+    (canvas as HTMLCanvasElement & { printInfo?: SheetRenderInfo }).printInfo = info;
+    options = { ...options, titleBlock: { ...options.titleBlock, scaleText: multi ? 'كما هو مبين' : String(printScale) } };
 
     // 5. رسم سهم الشمال المعماري (North Arrow) — يدور حسب الزاوية المختارة
     if (options.includeNorthArrow) {
@@ -380,7 +413,7 @@ export class ExportEngine {
     }
 
     // 6. مسطرة المقياس الحقيقية (أطوال بالمتر مطابقة للمقياس المطبوع)
-    if (options.includeScaleBar) {
+    if (options.includeScaleBar && !multi) {
       const sbX = drawingAreaX + 12 * pxPerMm;
       const sbY = drawingAreaY + drawingAreaH - 12 * pxPerMm;
       this.drawScaleBar(ctx, sbX, sbY, pxPerMm * 0.85, textColor, borderColor, printScale, pxPerMm, bgColor);
@@ -388,7 +421,8 @@ export class ExportEngine {
 
     // 7. رسم مفتاح الرموز الهندسية المصغر (Mini Legend)
     if (options.includeLegend) {
-      this.drawMiniLegend(
+      const legendSheet = views[0].sheetId || model.getActiveSheetId();
+      model.withSheetTemporarily(legendSheet, () => this.drawMiniLegend(
         ctx,
         model,
         options,
@@ -399,15 +433,50 @@ export class ExportEngine {
         titleBlockBorder,
         textColor,
         textMutedColor
-      );
+      ));
+    }
+
+    // 7.5 جدول المراجعات (أعلى الخرطوشة من اليمين)
+    if (options.revisions && options.revisions.length > 0) {
+      this.drawRevisionsTable(ctx, options.revisions, drawingAreaX + drawingAreaW, drawingAreaY + slotH, pxPerMm, titleBlockBg, titleBlockBorder, textColor, textMutedColor);
     }
 
     // 8. رسم الخرطوشة الهندسية التنفيذية (Engineering Title Block)
     if (options.includeTitleBlock) {
       const tbX = innerMarginPx;
       const tbY = canvasH - innerMarginPx - titleBlockHeightPx;
-      const tbW = canvasW - innerMarginPx * 2;
+      let tbW = canvasW - innerMarginPx * 2;
       const tbH = titleBlockHeightPx;
+
+      // خانة الشركة/المكتب وشعارها في أقصى يمين الخرطوشة (إن وُجدت)
+      if (options.companyName || logoImg) {
+        const compW = Math.min(tbW * 0.16, 62 * pxPerMm);
+        const cx = tbX + tbW - compW;
+        ctx.fillStyle = titleBlockBg;
+        ctx.fillRect(cx, tbY, compW, tbH);
+        ctx.strokeStyle = titleBlockBorder;
+        ctx.lineWidth = Math.max(1.5, 0.7 * scaleDpi);
+        ctx.strokeRect(cx, tbY, compW, tbH);
+        const pad = 3 * pxPerMm;
+        const nameH = options.companyName ? 9 * pxPerMm : 0;
+        if (logoImg) {
+          const maxW = compW - pad * 2;
+          const maxH = tbH - pad * 2 - nameH;
+          const k = Math.min(maxW / logoImg.width, maxH / logoImg.height);
+          const lw = logoImg.width * k;
+          const lh = logoImg.height * k;
+          ctx.drawImage(logoImg, cx + (compW - lw) / 2, tbY + pad + (maxH - lh) / 2, lw, lh);
+        }
+        if (options.companyName) {
+          ctx.fillStyle = textColor;
+          ctx.font = `bold ${Math.round(3.6 * pxPerMm)}px 'Cairo', sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(options.companyName, cx + compW / 2, logoImg ? tbY + tbH - pad - nameH / 2 : tbY + tbH / 2, compW - pad * 2);
+          ctx.textBaseline = 'alphabetic';
+        }
+        tbW -= compW;
+      }
 
       this.drawTitleBlock(
         ctx,
@@ -429,7 +498,7 @@ export class ExportEngine {
   }
 
   /**
-   * رسم صفحة جدول الكميات (BOQ Sheet) كصفحة PDF ثانية
+   * صفحة جدول الكميات (أول صفحة فقط — للمعاينة). للتصدير استخدم renderBOQPagesToCanvases.
    */
   public static renderBOQSheetToCanvas(
     model: ProjectModel,
@@ -438,273 +507,214 @@ export class ExportEngine {
     heightMm: number,
     scaleDpi: number = 2.5
   ): HTMLCanvasElement {
+    return this.renderBOQPagesToCanvases(model, options, widthMm, heightMm, scaleDpi)[0];
+  }
+
+  /**
+   * صفحات جدول الكميات في PDF — نفس بنود نافذة الكميات (model/quantities.ts):
+   * البند، الوحدة، الكمية، سعر الوحدة، الإجمالي (فارغان حتى يُدخل السعر)، مع مجموع لكل قسم والمجموع الكلي
+   * وخانات التوقيع في الصفحة الأخيرة. تُقسَّم تلقائياً على أكثر من صفحة عند طول الجدول.
+   */
+  public static renderBOQPagesToCanvases(
+    model: ProjectModel,
+    options: ExportPDFOptions,
+    widthMm: number,
+    heightMm: number,
+    scaleDpi: number = 2.5
+  ): HTMLCanvasElement[] {
     const pxPerMm = 3.7795 * scaleDpi;
-    const canvasW = Math.round(widthMm * pxPerMm);
-    const canvasH = Math.round(heightMm * pxPerMm);
-
-    const canvas = document.createElement('canvas');
-    canvas.width = canvasW;
-    canvas.height = canvasH;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('Could not create 2d context for BOQ');
-
-    const meta = model.getMeta();
-    const pixelsPerMeter = meta.scale || 50;
-    const allObjects = model.getObjects();
-    const layers = model.getLayers();
-
-    // خلفية الصفحة
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, canvasW, canvasH);
-
-    // إطار الصفحة
-    const marginPx = 10 * pxPerMm;
-    ctx.strokeStyle = '#0f172a';
-    ctx.lineWidth = 1.5 * scaleDpi;
-    ctx.strokeRect(marginPx, marginPx, canvasW - marginPx * 2, canvasH - marginPx * 2);
-
-    const innerMarginPx = marginPx + 4 * pxPerMm;
-    ctx.strokeStyle = '#64748b';
-    ctx.lineWidth = 0.5 * scaleDpi;
-    ctx.strokeRect(innerMarginPx, innerMarginPx, canvasW - innerMarginPx * 2, canvasH - innerMarginPx * 2);
-
-    let curY = innerMarginPx + 10 * pxPerMm;
-    const contentX = innerMarginPx + 10 * pxPerMm;
-    const contentW = canvasW - (innerMarginPx + 10 * pxPerMm) * 2;
-
-    // رأس الصفحة (Header)
-    ctx.fillStyle = '#0f172a';
-    ctx.font = `bold ${Math.round(8 * scaleDpi)}px 'Cairo', sans-serif`;
-    ctx.textAlign = 'right';
-    ctx.fillText('جدول حصر الكميات والمواصفات الفنية المعتمد (BOQ & Specifications Schedule)', contentX + contentW, curY);
-
-    curY += 6 * pxPerMm;
-    ctx.fillStyle = '#475569';
-    ctx.font = `${Math.round(4 * scaleDpi)}px 'Cairo', sans-serif`;
-    const subHeader = `مشروع: ${options.titleBlock.projectName} | تاريخ اللوحة: ${options.titleBlock.date} | رقم اللوحة: ${options.titleBlock.sheetNumber} | مقياس الرسم: 1:${options.titleBlock.scaleText || '50'}`;
-    ctx.fillText(subHeader, contentX + contentW, curY);
-
-    curY += 3 * pxPerMm;
-    ctx.strokeStyle = '#cbd5e1';
-    ctx.lineWidth = 1 * scaleDpi;
-    ctx.beginPath();
-    ctx.moveTo(contentX, curY);
-    ctx.lineTo(contentX + contentW, curY);
-    ctx.stroke();
-
-    curY += 8 * pxPerMm;
-
-    // 1. جدول الرموز الهندسية
-    const symbols = allObjects.filter((o) => o.type === 'symbol') as SymbolObject[];
-    const symbolsGrouped: Record<string, { kind: string; count: number; labels: Set<string>; layers: Set<string> }> = {};
-    symbols.forEach((sym) => {
-      if (!symbolsGrouped[sym.symbolKind]) {
-        symbolsGrouped[sym.symbolKind] = { kind: sym.symbolKind, count: 0, labels: new Set(), layers: new Set() };
-      }
-      symbolsGrouped[sym.symbolKind].count++;
-      if (sym.label) symbolsGrouped[sym.symbolKind].labels.add(sym.label);
-      const lyr = layers.find((l) => l.id === sym.layerId);
-      if (lyr) symbolsGrouped[sym.symbolKind].layers.add(lyr.name);
+    const W = Math.round(widthMm * pxPerMm);
+    const H = Math.round(heightMm * pxPerMm);
+    const report = computeQuantities(model.getObjects(), {
+      pixelsPerMeter: model.getMeta().scale || 50,
+      settings: model.getQuantitySettings(),
+      symbolName: (k) => getSymbolById(k)?.name || k,
+      routeMeta: (k) => ROUTE_KINDS_META[k],
     });
+    const prices = model.getQuantitySettings().prices;
+    const fmt = (v: number, d = 2) => v.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
 
-    const symList = Object.values(symbolsGrouped);
+    type Row = { kind: 'section'; title: string } | { kind: 'line'; n: number; line: BoqLine } | { kind: 'subtotal'; title: string; value: number | null };
+    const rows: Row[] = [];
+    let n = 0;
+    const sections = (Object.keys(BOQ_SECTION_TITLES) as BoqSection[]).filter((sec) => report.lines.some((l) => l.section === sec));
+    for (const sec of sections) {
+      rows.push({ kind: 'section', title: BOQ_SECTION_TITLES[sec] });
+      const ls = report.lines.filter((l) => l.section === sec);
+      ls.forEach((line) => rows.push({ kind: 'line', n: ++n, line }));
+      const t = ls.reduce<number | null>((a, l) => {
+        const v = lineTotal(l, prices);
+        return v === null ? a : (a ?? 0) + v;
+      }, null);
+      if (t !== null) rows.push({ kind: 'subtotal', title: `مجموع ${BOQ_SECTION_TITLES[sec]}`, value: t });
+    }
+    const grand = report.lines.reduce<number | null>((a, l) => {
+      const v = lineTotal(l, prices);
+      return v === null ? a : (a ?? 0) + v;
+    }, null);
 
-    ctx.fillStyle = '#0f172a';
-    ctx.font = `bold ${Math.round(5 * scaleDpi)}px 'Cairo', sans-serif`;
-    ctx.fillText(`1. جدول حصر الرموز والأجهزة (Symbols Schedule) - إجمالي: ${symbols.length} قطعة`, contentX + contentW, curY);
-    curY += 4 * pxPerMm;
+    const margin = 14 * pxPerMm;
+    const contentX = margin + 6 * pxPerMm;
+    const contentW = W - contentX * 2;
+    const rowH = 6.2 * pxPerMm;
+    const headerTop = margin + 6 * pxPerMm;
+    const tableTop = headerTop + 18 * pxPerMm;
+    const signH = 26 * pxPerMm;
+    const footerY = H - margin - 4 * pxPerMm;
+    // أعمدة من اليمين: #، البند، الوحدة، الكمية، سعر الوحدة، الإجمالي
+    const fr = [0.06, 0.46, 0.09, 0.13, 0.13, 0.13];
+    const cols = fr.map((f) => f * contentW);
+    const heads = ['#', 'البند', 'الوحدة', 'الكمية', 'سعر الوحدة', 'الإجمالي'];
 
-    // رسم رأس جدول الرموز
-    const colWidths = [
-      contentW * 0.08, // الرقم
-      contentW * 0.32, // الاسم
-      contentW * 0.22, // التخصص
-      contentW * 0.22, // الطبقة
-      contentW * 0.16, // الكمية
-    ];
+    const pages: HTMLCanvasElement[] = [];
+    let idx = 0;
+    const font = (size: number, bold = false) => `${bold ? 'bold ' : ''}${Math.round(size * pxPerMm)}px 'Cairo', sans-serif`;
+    do {
+      const canvas = document.createElement('canvas');
+      canvas.width = W;
+      canvas.height = H;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Could not create 2d context for BOQ');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, W, H);
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 0.5 * pxPerMm;
+      ctx.strokeRect(margin, margin, W - margin * 2, H - margin * 2);
 
-    const rowH = 6 * pxPerMm;
-
-    ctx.fillStyle = '#f1f5f9';
-    ctx.fillRect(contentX, curY, contentW, rowH);
-    ctx.strokeStyle = '#cbd5e1';
-    ctx.strokeRect(contentX, curY, contentW, rowH);
-
-    ctx.fillStyle = '#334155';
-    ctx.font = `bold ${Math.round(3.4 * scaleDpi)}px 'Cairo', sans-serif`;
-    ctx.textAlign = 'center';
-
-    let colX = contentX + contentW;
-    ctx.fillText('م', colX - colWidths[0] / 2, curY + rowH * 0.65);
-    colX -= colWidths[0];
-    ctx.fillText('اسم الرمز والمواصفة', colX - colWidths[1] / 2, curY + rowH * 0.65);
-    colX -= colWidths[1];
-    ctx.fillText('التخصص', colX - colWidths[2] / 2, curY + rowH * 0.65);
-    colX -= colWidths[2];
-    ctx.fillText('الطبقة الهندسية', colX - colWidths[3] / 2, curY + rowH * 0.65);
-    colX -= colWidths[3];
-    ctx.fillText('الكمية (قطعة)', colX - colWidths[4] / 2, curY + rowH * 0.65);
-
-    curY += rowH;
-
-    // صفوف جدول الرموز
-    ctx.font = `${Math.round(3.2 * scaleDpi)}px 'Cairo', sans-serif`;
-    symList.slice(0, 10).forEach((item, idx) => {
-      const def = getSymbolById(item.kind);
-      const cat = def ? CATEGORIES_META[def.category]?.name || 'عام' : 'عام';
-      const lyrNames = Array.from(item.layers).join(', ') || '-';
-
-      ctx.fillStyle = idx % 2 === 0 ? '#ffffff' : '#f8fafc';
-      ctx.fillRect(contentX, curY, contentW, rowH);
-      ctx.strokeStyle = '#e2e8f0';
-      ctx.strokeRect(contentX, curY, contentW, rowH);
-
-      ctx.fillStyle = '#1e293b';
-      let rX = contentX + contentW;
-      ctx.textAlign = 'center';
-      ctx.fillText(`${idx + 1}`, rX - colWidths[0] / 2, curY + rowH * 0.65);
-      rX -= colWidths[0];
-
+      // الرأس
+      ctx.fillStyle = '#0f172a';
       ctx.textAlign = 'right';
-      ctx.fillText(`${def?.name || item.kind} (${def?.nameEn || ''})`, rX - 3 * pxPerMm, curY + rowH * 0.65);
-      rX -= colWidths[1];
+      ctx.textBaseline = 'alphabetic';
+      ctx.font = font(6, true);
+      ctx.fillText('جدول الكميات', contentX + contentW, headerTop + 5 * pxPerMm);
+      ctx.fillStyle = '#475569';
+      ctx.font = font(3.2);
+      const sub = [`المشروع: ${options.titleBlock.projectName}`, options.companyName ? `المكتب: ${options.companyName}` : '', `التاريخ: ${options.titleBlock.date}`, `رقم اللوحة: ${options.titleBlock.sheetNumber}`]
+        .filter(Boolean)
+        .join('   |   ');
+      ctx.fillText(sub, contentX + contentW, headerTop + 11 * pxPerMm, contentW);
 
+      // رأس الجدول
+      let y = tableTop;
+      ctx.fillStyle = '#1f2937';
+      ctx.fillRect(contentX, y, contentW, rowH);
+      let cx = contentX + contentW;
+      ctx.fillStyle = '#ffffff';
+      ctx.font = font(3, true);
       ctx.textAlign = 'center';
-      ctx.fillText(cat, rX - colWidths[2] / 2, curY + rowH * 0.65);
-      rX -= colWidths[2];
+      ctx.textBaseline = 'middle';
+      heads.forEach((h, i) => {
+        ctx.fillText(h, cx - cols[i] / 2, y + rowH / 2);
+        cx -= cols[i];
+      });
+      y += rowH;
 
-      ctx.fillText(lyrNames, rX - colWidths[3] / 2, curY + rowH * 0.65);
-      rX -= colWidths[3];
-
-      ctx.font = `bold ${Math.round(3.4 * scaleDpi)}px 'Cairo', monospace`;
-      ctx.fillStyle = '#0284c7';
-      ctx.fillText(`${item.count}`, rX - colWidths[4] / 2, curY + rowH * 0.65);
-      ctx.font = `${Math.round(3.2 * scaleDpi)}px 'Cairo', sans-serif`;
-
-      curY += rowH;
-    });
-
-    curY += 8 * pxPerMm;
-
-    // 2. جدول حصر أطوال المسارات والمواسير
-    const routes = allObjects.filter((o) => o.type === 'route') as RouteObject[];
-    const routesGrouped: Record<string, { kind: string; material: string; diameter: number; count: number; totalLength: number }> = {};
-    routes.forEach((r) => {
-      const metaRoute = ROUTE_KINDS_META[r.routeKind];
-      const mat = r.material || metaRoute?.defaultMaterial || 'معياري';
-      const dia = r.diameter || metaRoute?.defaultDiameter || 20;
-      const key = `${r.routeKind}_${mat}_${dia}`;
-      const len = r.lengthCalculated || calculateRoutePixelLength(r.points) / pixelsPerMeter;
-
-      if (!routesGrouped[key]) {
-        routesGrouped[key] = { kind: metaRoute?.name || r.routeKind, material: mat, diameter: dia, count: 0, totalLength: 0 };
+      const bottomLimit = footerY - 8 * pxPerMm;
+      while (idx < rows.length && y + rowH <= bottomLimit) {
+        const r = rows[idx++];
+        if (r.kind === 'section') {
+          ctx.fillStyle = '#e6f4ea';
+          ctx.fillRect(contentX, y, contentW, rowH);
+          ctx.fillStyle = '#0f766e';
+          ctx.font = font(3.1, true);
+          ctx.textAlign = 'right';
+          ctx.fillText(r.title, contentX + contentW - 2 * pxPerMm, y + rowH / 2);
+        } else {
+          const vals =
+            r.kind === 'line'
+              ? (() => {
+                  const p = prices[r.line.key];
+                  const t = lineTotal(r.line, prices);
+                  const q = r.line.unit === 'عدد' ? String(r.line.qty) : fmt(r.line.qty, r.line.unit === 'م³' ? 3 : 2);
+                  return [String(r.n), r.line.name, r.line.unit, q, typeof p === 'number' ? fmt(p) : '', t === null ? '' : fmt(t)];
+                })()
+              : ['', r.title, '', '', '', r.value === null ? '' : fmt(r.value)];
+          if (r.kind === 'subtotal') {
+            ctx.fillStyle = '#f3f4f6';
+            ctx.fillRect(contentX, y, contentW, rowH);
+          }
+          let x = contentX + contentW;
+          vals.forEach((v, i) => {
+            ctx.fillStyle = '#0f172a';
+            ctx.font = font(2.9, r.kind === 'subtotal' || i === 3);
+            ctx.textAlign = i === 1 ? 'right' : 'center';
+            ctx.fillText(v, i === 1 ? x - 2 * pxPerMm : x - cols[i] / 2, y + rowH / 2, cols[i] - 3 * pxPerMm);
+            x -= cols[i];
+          });
+        }
+        // حدود الصف والأعمدة
+        ctx.strokeStyle = '#d1d5db';
+        ctx.lineWidth = 0.15 * pxPerMm;
+        ctx.strokeRect(contentX, y, contentW, rowH);
+        if (r.kind !== 'section') {
+          let x = contentX + contentW;
+          for (let i = 0; i < cols.length - 1; i++) {
+            x -= cols[i];
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+            ctx.lineTo(x, y + rowH);
+            ctx.stroke();
+          }
+        }
+        y += rowH;
       }
-      routesGrouped[key].count++;
-      routesGrouped[key].totalLength += len;
-    });
 
-    const routeList = Object.values(routesGrouped);
-    const totalAllRoutesMeters = routeList.reduce((sum, r) => sum + r.totalLength, 0);
+      const done = idx >= rows.length;
+      if (done) {
+        if (grand !== null && y + rowH * 1.3 <= bottomLimit) {
+          ctx.fillStyle = '#d1fae5';
+          ctx.fillRect(contentX, y, contentW, rowH * 1.3);
+          ctx.strokeStyle = '#0f172a';
+          ctx.strokeRect(contentX, y, contentW, rowH * 1.3);
+          ctx.fillStyle = '#0f172a';
+          ctx.font = font(3.4, true);
+          ctx.textAlign = 'right';
+          ctx.fillText('المجموع الكلي', contentX + contentW - 2 * pxPerMm, y + rowH * 0.65);
+          ctx.textAlign = 'center';
+          ctx.fillText(fmt(grand), contentX + cols[5] / 2, y + rowH * 0.65);
+          y += rowH * 1.3;
+        }
+        if (report.lines.length === 0) {
+          ctx.fillStyle = '#64748b';
+          ctx.font = font(3.4);
+          ctx.textAlign = 'center';
+          ctx.fillText('لا توجد عناصر للحصر في هذه اللوحة.', contentX + contentW / 2, y + 10 * pxPerMm);
+          y += 16 * pxPerMm;
+        }
+        // خانات التوقيع إن اتسعت الصفحة
+        if (y + signH + 6 * pxPerMm <= bottomLimit) {
+          const sy = y + 8 * pxPerMm;
+          const sw = contentW / 3;
+          const labels = [
+            ['إعداد', options.titleBlock.engineer || ''],
+            ['مراجعة', ''],
+            ['اعتماد المالك / الاستشاري', options.titleBlock.client || ''],
+          ];
+          labels.forEach(([label, name], i) => {
+            const x = contentX + contentW - (i + 1) * sw;
+            ctx.strokeStyle = '#94a3b8';
+            ctx.lineWidth = 0.2 * pxPerMm;
+            ctx.strokeRect(x + 2 * pxPerMm, sy, sw - 4 * pxPerMm, signH - 6 * pxPerMm);
+            ctx.fillStyle = '#475569';
+            ctx.font = font(2.8, true);
+            ctx.textAlign = 'center';
+            ctx.fillText(label, x + sw / 2, sy + 4 * pxPerMm);
+            ctx.fillStyle = '#0f172a';
+            ctx.font = font(2.8);
+            if (name) ctx.fillText(name, x + sw / 2, sy + 10 * pxPerMm, sw - 8 * pxPerMm);
+          });
+        }
+      }
 
-    ctx.fillStyle = '#0f172a';
-    ctx.font = `bold ${Math.round(5 * scaleDpi)}px 'Cairo', sans-serif`;
-    ctx.textAlign = 'right';
-    ctx.fillText(`2. جدول حصر شبكات الكابلات والمواسير (Routes & Piping BOQ) - إجمالي: ${totalAllRoutesMeters.toFixed(2)} متر`, contentX + contentW, curY);
-    curY += 4 * pxPerMm;
-
-    const rColWidths = [
-      contentW * 0.08, // الرقم
-      contentW * 0.28, // نوع الشبكة
-      contentW * 0.28, // الخامة والمواصفة
-      contentW * 0.16, // القطر
-      contentW * 0.20, // الطول الإجمالي
-    ];
-
-    ctx.fillStyle = '#f1f5f9';
-    ctx.fillRect(contentX, curY, contentW, rowH);
-    ctx.strokeStyle = '#cbd5e1';
-    ctx.strokeRect(contentX, curY, contentW, rowH);
-
-    ctx.fillStyle = '#334155';
-    ctx.font = `bold ${Math.round(3.4 * scaleDpi)}px 'Cairo', sans-serif`;
-    ctx.textAlign = 'center';
-
-    let rColX = contentX + contentW;
-    ctx.fillText('م', rColX - rColWidths[0] / 2, curY + rowH * 0.65);
-    rColX -= rColWidths[0];
-    ctx.fillText('نوع الشبكة / التخصص', rColX - rColWidths[1] / 2, curY + rowH * 0.65);
-    rColX -= rColWidths[1];
-    ctx.fillText('المواصفة والمادة', rColX - rColWidths[2] / 2, curY + rowH * 0.65);
-    rColX -= rColWidths[2];
-    ctx.fillText('القطر / المقاس', rColX - rColWidths[3] / 2, curY + rowH * 0.65);
-    rColX -= rColWidths[3];
-    ctx.fillText('الطول الإجمالي (متر)', rColX - rColWidths[4] / 2, curY + rowH * 0.65);
-
-    curY += rowH;
-
-    ctx.font = `${Math.round(3.2 * scaleDpi)}px 'Cairo', sans-serif`;
-    routeList.forEach((r, idx) => {
-      ctx.fillStyle = idx % 2 === 0 ? '#ffffff' : '#f8fafc';
-      ctx.fillRect(contentX, curY, contentW, rowH);
-      ctx.strokeStyle = '#e2e8f0';
-      ctx.strokeRect(contentX, curY, contentW, rowH);
-
-      ctx.fillStyle = '#1e293b';
-      let rX = contentX + contentW;
+      // التذييل: رقم الصفحة
+      pages.push(canvas);
+      ctx.fillStyle = '#64748b';
+      ctx.font = font(2.6);
       ctx.textAlign = 'center';
-      ctx.fillText(`${idx + 1}`, rX - rColWidths[0] / 2, curY + rowH * 0.65);
-      rX -= rColWidths[0];
+      ctx.fillText(`صفحة ${pages.length}`, W / 2, footerY);
+    } while (idx < rows.length);
 
-      ctx.textAlign = 'right';
-      ctx.fillText(r.kind, rX - 3 * pxPerMm, curY + rowH * 0.65);
-      rX -= rColWidths[1];
-
-      ctx.fillText(r.material, rX - 3 * pxPerMm, curY + rowH * 0.65);
-      rX -= rColWidths[2];
-
-      ctx.textAlign = 'center';
-      ctx.fillText(`${r.diameter} مم`, rX - rColWidths[3] / 2, curY + rowH * 0.65);
-      rX -= rColWidths[3];
-
-      ctx.font = `bold ${Math.round(3.4 * scaleDpi)}px 'Cairo', monospace`;
-      ctx.fillStyle = '#059669';
-      ctx.fillText(`${r.totalLength.toFixed(2)} م (${r.count})`, rX - rColWidths[4] / 2, curY + rowH * 0.65);
-      ctx.font = `${Math.round(3.2 * scaleDpi)}px 'Cairo', sans-serif`;
-
-      curY += rowH;
-    });
-
-    // صندوق التوقيعات والاعتماد أسفل صفحة BOQ
-    const signBoxY = canvasH - innerMarginPx - 25 * pxPerMm;
-    const signBoxW = contentW;
-    const signBoxH = 20 * pxPerMm;
-
-    ctx.strokeStyle = '#94a3b8';
-    ctx.lineWidth = 1 * scaleDpi;
-    ctx.strokeRect(contentX, signBoxY, signBoxW, signBoxH);
-
-    const signCols = [signBoxW * 0.33, signBoxW * 0.33, signBoxW * 0.34];
-    ctx.beginPath();
-    ctx.moveTo(contentX + signCols[0], signBoxY);
-    ctx.lineTo(contentX + signCols[0], signBoxY + signBoxH);
-    ctx.moveTo(contentX + signCols[0] + signCols[1], signBoxY);
-    ctx.lineTo(contentX + signCols[0] + signCols[1], signBoxY + signBoxH);
-    ctx.stroke();
-
-    ctx.fillStyle = '#475569';
-    ctx.font = `${Math.round(3 * scaleDpi)}px 'Cairo', sans-serif`;
-    ctx.textAlign = 'center';
-
-    ctx.fillText('إعداد مهندس الحصر والمواصفات:', contentX + signCols[0] / 2, signBoxY + 5 * pxPerMm);
-    ctx.fillText(options.titleBlock.engineer || 'مهندس المشروع', contentX + signCols[0] / 2, signBoxY + 12 * pxPerMm);
-
-    ctx.fillText('مراجعة مدير المشروعات:', contentX + signCols[0] + signCols[1] / 2, signBoxY + 5 * pxPerMm);
-    ctx.fillText('معتمد هندسياً', contentX + signCols[0] + signCols[1] / 2, signBoxY + 12 * pxPerMm);
-
-    ctx.fillText('اعتماد المالك / الاستشاري:', contentX + signCols[0] + signCols[1] + signCols[2] / 2, signBoxY + 5 * pxPerMm);
-    ctx.fillText(options.titleBlock.client || 'المالك الموقر', contentX + signCols[0] + signCols[1] + signCols[2] / 2, signBoxY + 12 * pxPerMm);
-
-    return canvas;
+    return pages;
   }
 
   /**
@@ -1095,7 +1105,7 @@ export class ExportEngine {
 
     ctx.fillStyle = textColor;
     ctx.font = `bold ${valueFontSize}px 'Cairo', monospace`;
-    ctx.fillText(`1:${data.scaleText || '50'}`, rightSubcellEdge, y + h * 0.39, maxSubW);
+    ctx.fillText(/^\d+(\.\d+)?$/.test(data.scaleText || '50') ? `1:${data.scaleText || '50'}` : data.scaleText, rightSubcellEdge, y + h * 0.39, maxSubW);
 
     // 3.2 الخلية العلوية اليسرى: التاريخ
     ctx.fillStyle = mutedColor;
@@ -1179,6 +1189,55 @@ export class ExportEngine {
     ctx.fillStyle = textColor;
     ctx.font = `bold ${sheetNoFontSize}px 'Cairo', monospace`;
     ctx.fillText(data.sheetNumber || 'MEP-01', c4Center, y + h * 0.89);
+  }
+
+  /**
+   * جدول المراجعات: يُرسم أعلى الخرطوشة ملاصقاً لزاوية مساحة الرسم اليمنى السفلى
+   */
+  private static drawRevisionsTable(
+    ctx: CanvasRenderingContext2D,
+    revisions: { rev: string; date: string; description: string }[],
+    rightX: number,
+    bottomY: number,
+    pxPerMm: number,
+    bg: string,
+    border: string,
+    text: string,
+    muted: string
+  ): void {
+    const rows = revisions.slice(-6);
+    const colW = [14, 24, 62].map((w) => w * pxPerMm); // رقم، تاريخ، وصف (من اليمين)
+    const W = colW.reduce((a, b) => a + b, 0);
+    const rowH = 5.2 * pxPerMm;
+    const H = rowH * (rows.length + 2);
+    const x = rightX - W;
+    const y = bottomY - H;
+    ctx.save();
+    ctx.fillStyle = bg;
+    ctx.fillRect(x, y, W, H);
+    ctx.strokeStyle = border;
+    ctx.lineWidth = 0.3 * pxPerMm;
+    ctx.strokeRect(x, y, W, H);
+    ctx.fillStyle = text;
+    ctx.font = `bold ${Math.round(2.8 * pxPerMm)}px 'Cairo', sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('جدول المراجعات', x + W / 2, y + rowH / 2);
+    const heads = ['المراجعة', 'التاريخ', 'الوصف'];
+    const cells = (r: number, vals: string[], bold: boolean, color: string) => {
+      let cx = x + W;
+      vals.forEach((v, i) => {
+        ctx.strokeRect(cx - colW[i], y + rowH * r, colW[i], rowH);
+        ctx.fillStyle = color;
+        ctx.font = `${bold ? 'bold ' : ''}${Math.round(2.4 * pxPerMm)}px 'Cairo', sans-serif`;
+        ctx.textAlign = i === 2 ? 'right' : 'center';
+        ctx.fillText(v, i === 2 ? cx - 1.5 * pxPerMm : cx - colW[i] / 2, y + rowH * r + rowH / 2, colW[i] - 3 * pxPerMm);
+        cx -= colW[i];
+      });
+    };
+    cells(1, heads, true, muted);
+    rows.forEach((r, i) => cells(i + 2, [r.rev, r.date, r.description], false, text));
+    ctx.restore();
   }
 
   /**
