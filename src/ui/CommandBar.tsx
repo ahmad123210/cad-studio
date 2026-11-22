@@ -59,6 +59,8 @@ function promptFor(tool: ToolMode, hasOrigin: boolean): string {
 }
 
 const HAS_LETTERS = /[a-zA-Z؀-ۿ]/;
+/** قيمة مقاس مثل 0.3x0.5 (تحتوي حرف x لكنها ليست اسم أمر) */
+const SIZE_VALUE = /^\d*\.?\d+\s*[x×*]\s*\d*\.?\d+$/i;
 
 export const CommandBar: React.FC<CommandBarProps> = ({ engine, currentTool, hidden }) => {
   const live = useLiveStatus(); // لإعادة التصيير مع تغيّر حالة الأداة (بداية/نهاية الرسم)
@@ -109,7 +111,7 @@ export const CommandBar: React.FC<CommandBarProps> = ({ engine, currentTool, hid
   if (hidden) return null;
   void live;
   const hasOrigin = Boolean(engine?.getDrawingOrigin());
-  const suggestions = !pointMode || HAS_LETTERS.test(value) ? suggestCommands(value) : [];
+  const suggestions = !pointMode || (HAS_LETTERS.test(value) && !SIZE_VALUE.test(value)) ? suggestCommands(value) : [];
   const last = getLastCommand();
 
   const execCommandText = (text: string): string | null => {
@@ -132,7 +134,7 @@ export const CommandBar: React.FC<CommandBarProps> = ({ engine, currentTool, hid
       } else if (last) {
         err = runCommand(engine, last.id);
       }
-    } else if (pointMode && !HAS_LETTERS.test(text)) {
+    } else if (pointMode && (!HAS_LETTERS.test(text) || SIZE_VALUE.test(text))) {
       err = engine.isEditAwaitingValue() ? engine.applyEditValue(text) : engine.applyPointInput(text);
     } else {
       err = execCommandText(text);

@@ -42,6 +42,7 @@ import {
   Spline,
   Hexagon,
   Circle as CircleIcon,
+  Footprints,
 } from 'lucide-react';
 import { ToolMode, CadEngine } from '../engine/renderer.ts';
 import { SnapOptions } from '../engine/snap.ts';
@@ -497,7 +498,7 @@ export const LeftToolbar: React.FC<LeftToolbarProps> = ({
           className={`w-11 h-10 rounded-xl flex flex-col items-center justify-center transition-all relative ${
             shapesMenu ? 'bg-cyan-700 text-white' : 'text-neutral-400 hover:text-cyan-300 hover:bg-neutral-800'
           }`}
-          title="أشكال الرسم: مستطيل، دائرة، قوس، مضلع"
+          title="أشكال وعناصر: مستطيل، دائرة، قوس، مضلع، عمود، درج"
         >
           <Shapes size={17} />
           <span className="text-[8px] mt-0.5 font-medium">أشكال</span>
@@ -516,6 +517,8 @@ export const LeftToolbar: React.FC<LeftToolbarProps> = ({
                   ['circle', 'دائرة', 'c', CircleIcon],
                   ['arc', 'قوس (3 نقاط)', 'arc', Spline],
                   ['polygon', 'مضلع منتظم', 'pol', Hexagon],
+                  ['column', 'عمود', 'col', Square],
+                  ['stairs', 'درج', 'st', Footprints],
                 ] as const).map(([kind, label, alias, Icon]) => (
                   <button
                     key={kind}

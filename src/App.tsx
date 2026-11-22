@@ -98,12 +98,12 @@ function cloneObjectsWithOffset(source: ProjectObject[], offset: number): Projec
     const clone = JSON.parse(JSON.stringify(orig));
     clone.id = newObjectId(clone.type);
     idMap.set(orig.id, clone.id);
-    if (clone.type === 'wall' || clone.type === 'dimension') {
+    if (clone.type === 'wall' || clone.type === 'dimension' || clone.type === 'stairs') {
       clone.start.x += offset;
       clone.start.y += offset;
       clone.end.x += offset;
       clone.end.y += offset;
-    } else if (clone.type === 'symbol' || clone.type === 'text' || clone.type === 'room') {
+    } else if (clone.type === 'symbol' || clone.type === 'text' || clone.type === 'room' || clone.type === 'column') {
       clone.x += offset;
       clone.y += offset;
     } else if (clone.type === 'route' || clone.type === 'line') {

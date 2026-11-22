@@ -21,11 +21,14 @@ import {
   TextObject,
   LineObject,
   RoomObject,
+  ColumnObject,
+  StairObject,
   Layer,
   Point,
 } from '../model/types.ts';
 import { getSymbolById } from '../symbols/registry.ts';
 import { buildRoomGraph, findRoomAt, type RoomGraph } from '../model/rooms.ts';
+import { stairsGeometry } from '../model/stairs.ts';
 
 export interface DxfExportOptions {
   version?: 'R12' | 'AC1015'; // R12 = AC1009 (Universal Compatibility), AC1015 = AutoCAD 2000+
@@ -756,6 +759,30 @@ export function exportProjectToDxf(
     else if (obj.type === 'line') {
       const ln = obj as LineObject;
       if (ln.points && ln.points.length >= 2) writePolyline(ln.points, Boolean(ln.closed), layerName);
+    }
+
+    // ================= 3.6 الأعمدة والدرج =================
+    else if (obj.type === 'column') {
+      const col = obj as ColumnObject;
+      if (col.shape === 'round') {
+        writeCircle(col.x, col.y, col.width / 2 / pixelsPerMeter, layerName);
+      } else {
+        const rad = ((col.rotation || 0) * Math.PI) / 180;
+        const corner = (sx: number, sy: number) => ({
+          x: col.x + ((sx * col.width) / 2) * Math.cos(rad) - ((sy * col.depth) / 2) * Math.sin(rad),
+          y: col.y + ((sx * col.width) / 2) * Math.sin(rad) + ((sy * col.depth) / 2) * Math.cos(rad),
+        });
+        const pts = [corner(-1, -1), corner(1, -1), corner(1, 1), corner(-1, 1)];
+        writePolyline(pts, true, layerName);
+        writePolyline([pts[0], pts[2]], false, layerName);
+        writePolyline([pts[1], pts[3]], false, layerName);
+      }
+    } else if (obj.type === 'stairs') {
+      const g = stairsGeometry(obj as StairObject, pixelsPerMeter);
+      writePolyline(g.outline, true, layerName);
+      for (const [a, b] of g.steps) writePolyline([a, b], false, layerName);
+      const st = obj as StairObject;
+      writePolyline([st.start, st.end], false, layerName);
     }
 
     // ================= 4. المسارات والكابلات (Routes) =================

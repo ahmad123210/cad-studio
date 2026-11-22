@@ -19,7 +19,7 @@ export interface MigrationReport {
   warnings: string[];
 }
 
-const OBJECT_TYPES = new Set(['wall', 'door', 'window', 'dimension', 'symbol', 'route', 'text', 'line', 'room']);
+const OBJECT_TYPES = new Set(['wall', 'door', 'window', 'dimension', 'symbol', 'route', 'text', 'line', 'room', 'column', 'stairs']);
 const UNITS: UnitType[] = ['meter', 'cm', 'mm'];
 
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -95,6 +95,16 @@ function sanitizeObjects(
         ok = Array.isArray(o.points) && (o.points as unknown[]).every(isPt) && (o.points as unknown[]).length >= 1;
         if (!isNum(o.lengthCalculated)) o.lengthCalculated = 0;
         if (typeof o.routeKind !== 'string') o.routeKind = 'electrical';
+        break;
+      case 'column':
+        ok = isNum(o.x) && isNum(o.y);
+        if (!isNum(o.width) || (o.width as number) <= 0) o.width = 15;
+        if (!isNum(o.depth) || (o.depth as number) <= 0) o.depth = o.width;
+        if (!isNum(o.rotation)) o.rotation = 0;
+        break;
+      case 'stairs':
+        ok = isPt(o.start) && isPt(o.end);
+        if (!isNum(o.width) || (o.width as number) <= 0) o.width = 60;
         break;
       case 'room':
         ok = isNum(o.x) && isNum(o.y);

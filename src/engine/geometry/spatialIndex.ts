@@ -89,6 +89,16 @@ function boxOf(o: ProjectObject, walls: Map<string, WallObject>): Box | null {
       const host = walls.get((o as DoorObject).wallId);
       return host ? boxOf(host, walls) : null;
     }
+    case 'column': {
+      const c = o as unknown as { x: number; y: number; width: number; depth: number };
+      const r = Math.max(c.width, c.depth) / 2;
+      return { minX: c.x - r, minY: c.y - r, maxX: c.x + r, maxY: c.y + r };
+    }
+    case 'stairs': {
+      const st = o as unknown as { start: { x: number; y: number }; end: { x: number; y: number }; width: number };
+      const r = st.width / 2;
+      return { minX: Math.min(st.start.x, st.end.x) - r, minY: Math.min(st.start.y, st.end.y) - r, maxX: Math.max(st.start.x, st.end.x) + r, maxY: Math.max(st.start.y, st.end.y) + r };
+    }
     case 'symbol':
     case 'room':
     case 'text': {
