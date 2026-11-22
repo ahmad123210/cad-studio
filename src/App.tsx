@@ -33,6 +33,7 @@ import { CalibrationModal } from './ui/CalibrationModal.tsx';
 import { AreaBadge } from './ui/AreaBadge.tsx';
 import { SymbolsCatalogModal } from './ui/SymbolsCatalogModal.tsx';
 import { ScheduleBOQModal } from './ui/ScheduleBOQModal.tsx';
+import { BlocksModal } from './ui/BlocksModal.tsx';
 import { RouteControlBar } from './ui/RouteControlBar.tsx';
 // تحميل كسول: نافذتا التصدير (jsPDF ≈630KB) وDXF تُحمَّلان عند أول فتح فقط
 const ExportModal = React.lazy(() => import('./ui/ExportModal.tsx').then((m) => ({ default: m.ExportModal })));
@@ -400,6 +401,13 @@ export default function App() {
   const [isCalibrationModalOpen, setIsCalibrationModalOpen] = useState(false);
   const [isSymbolsCatalogOpen, setIsSymbolsCatalogOpen] = useState(false);
   const [isScheduleBOQOpen, setIsScheduleBOQOpen] = useState(false);
+  const [isBlocksOpen, setIsBlocksOpen] = useState(false);
+  // فتح مكتبة الكتل من شريط الأوامر (الأمر blocks يرسل هذا الحدث)
+  useEffect(() => {
+    const open = () => setIsBlocksOpen(true);
+    window.addEventListener('cad:open-blocks', open);
+    return () => window.removeEventListener('cad:open-blocks', open);
+  }, []);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const exportEverOpened = useRef(false);
   if (isExportModalOpen) exportEverOpened.current = true;
@@ -1308,6 +1316,7 @@ export default function App() {
       <div className="flex-1 flex relative overflow-hidden bg-[var(--cad-canvas-bg)]">
         {/* شريط الأدوات الأيسر */}
         <LeftToolbar
+          onOpenBlocks={() => setIsBlocksOpen(true)}
           currentTool={currentTool}
           selectionSubMode={selectionSubMode}
           onSelectTool={handleSelectTool}
@@ -1555,6 +1564,8 @@ export default function App() {
         }}
       />
 
+      <BlocksModal model={model} engine={engineRef.current} isOpen={isBlocksOpen} onClose={() => setIsBlocksOpen(false)} />
+
       <ScheduleBOQModal
         model={model}
         isOpen={isScheduleBOQOpen}
@@ -1640,6 +1651,7 @@ export default function App() {
             const err = engineRef.current?.startEditCommand(kind);
             if (err) alert(err);
           }}
+          onOpenBlocks={() => setIsBlocksOpen(true)}
           onAlign={(mode) => {
             const err = engineRef.current?.alignSelection(mode);
             if (err) alert(err);

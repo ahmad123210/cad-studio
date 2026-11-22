@@ -62,6 +62,17 @@ export const COMMANDS: CadCommand[] = [
   { id: 'stairs', label: 'درج', aliases: ['stairs', 'stair', 'st', 'درج'], defaultCodes: [], remappable: true, run: edit('stairs') },
   { id: 'polygon', label: 'مضلع منتظم', aliases: ['polygon', 'pol', 'مضلع'], defaultCodes: [], remappable: true, run: edit('polygon') },
   {
+    id: 'blocks',
+    label: 'مكتبة الكتل',
+    aliases: ['blocks', 'block', 'insert', 'i', 'كتل', 'كتلة', 'إدراج'],
+    defaultCodes: [],
+    remappable: true,
+    run: () => {
+      window.dispatchEvent(new Event('cad:open-blocks'));
+      return null;
+    },
+  },
+  {
     id: 'rooms',
     label: 'كشف الغرف',
     aliases: ['rooms', 'room', 'غرف', 'الغرف', 'كشف الغرف'],

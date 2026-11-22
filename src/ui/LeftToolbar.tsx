@@ -74,9 +74,12 @@ interface LeftToolbarProps {
   activeRouteKind?: RouteKind;
   onSelectRouteKind?: (kind: RouteKind) => void;
   hasBackgroundImage: boolean;
+  /** فتح مكتبة الكتل */
+  onOpenBlocks?: () => void;
 }
 
 export const LeftToolbar: React.FC<LeftToolbarProps> = ({
+  onOpenBlocks,
   currentTool,
   selectionSubMode,
   onSelectTool,
@@ -530,6 +533,20 @@ export const LeftToolbar: React.FC<LeftToolbarProps> = ({
                     <span>{label}</span>
                   </button>
                 ))}
+                {onOpenBlocks && (
+                  <button
+                    data-testid="open-blocks"
+                    onClick={() => {
+                      setShapesMenu(null);
+                      onOpenBlocks();
+                    }}
+                    className="col-span-2 flex items-center justify-center gap-1.5 p-2 rounded-xl bg-neutral-800/70 hover:bg-neutral-800 text-neutral-200"
+                    title="مكتبة الكتل: مطبخ، حمام، غرفة نوم... (blocks)"
+                  >
+                    <Boxes size={16} className="text-sky-300" />
+                    <span>مكتبة الكتل</span>
+                  </button>
+                )}
               </div>
             </div>,
             document.body
