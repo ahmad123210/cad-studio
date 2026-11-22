@@ -229,6 +229,7 @@ export function migrateProjectData(raw: unknown, defaultLayers: Layer[]): { data
     sheets,
     activeSheetId,
     quantities: sanitizeQuantitySettings(src.quantities),
+    printSettings: src.printSettings && typeof src.printSettings === 'object' && !Array.isArray(src.printSettings) ? src.printSettings : {},
     schemaVersion: CURRENT_SCHEMA_VERSION,
   };
   return { data, report: { fromVersion, warnings } };

@@ -963,8 +963,17 @@ export class CadEngine {
     customHeight?: number;
     /** سمة ألوان العناصر في الصورة المصدّرة (افتراضياً سمة الواجهة الحالية) */
     theme?: 'dark' | 'light';
+    /** طباعة بمقياس حقيقي: مركز الإطار بإحداثيات العالم والتكبير (بكسل صورة لكل بكسل عالم) */
+    camera?: { centerX: number; centerY: number; zoom: number };
+    /** سماكة خط الطباعة لكل طبقة بالبكسل (في الصورة الناتجة) — الطبقات غير المذكورة تبقى كما هي */
+    lineWeightsPx?: Record<string, number>;
   }): string {
-    return exportDrawingImageDataURLImpl.call(this, options);
+    return exportDrawingImageDataURLImpl.call(this, { ...options, output: 'dataUrl' }) as string;
+  }
+
+  /** مثل exportDrawingImageDataURL لكن يعيد Canvas (للطباعة بمقياس حقيقي على ورق كبير) */
+  public exportDrawingCanvas(options: Parameters<CadEngine['exportDrawingImageDataURL']>[0]): HTMLCanvasElement {
+    return exportDrawingImageDataURLImpl.call(this, { ...options, output: 'canvas' }) as HTMLCanvasElement;
   }
 
   public resize(width: number, height: number): void {

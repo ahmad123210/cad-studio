@@ -17,8 +17,10 @@ import { SymbolObject, RouteObject, WallObject, DoorObject, WindowObject } from 
 import { getSymbolById, CATEGORIES_META } from '../symbols/registry.ts';
 import { ROUTE_KINDS_META, calculateRoutePixelLength } from '../symbols/routes.ts';
 import { SnapEngine } from './snap.ts';
+import { fitStandardScale, fitsAtScale, mmPerWorldPx, niceScaleBar } from './print/printLayout.ts';
+import { renderSymbolIcon } from './print/symbolIcon.ts';
 
-export type PaperFormat = 'a4' | 'a3' | 'a2' | 'a1' | 'letter';
+export type PaperFormat = 'a4' | 'a3' | 'a2' | 'a1' | 'a0' | 'letter';
 export type Orientation = 'landscape' | 'portrait';
 export type ColorTheme = 'white' | 'dark' | 'blueprint';
 export type StampStatus = 'approved' | 'draft' | 'as_built' | 'for_review';
@@ -54,6 +56,18 @@ export interface ExportPDFOptions {
   includeSymbolsLegendSheet?: boolean;
   visibleLayerIds: string[];
   titleBlock: TitleBlockData;
+  /** مقياس الطباعة الحقيقي (1:S) أو ملاءمة تلقائية لأقرب مقياس معياري يتسع فيه المخطط */
+  printScale?: number | 'fit';
+  /** زاوية سهم الشمال بالدرجات (0 = أعلى الورقة، مع عقارب الساعة) */
+  northAngle?: number;
+  /** سماكة خط الطباعة لكل طبقة بالمم (الطبقات غير المذكورة = تلقائي) */
+  lineWeights?: Record<string, number>;
+}
+
+/** نتيجة رسم اللوحة: المقياس المستخدم وهل يتسع المخطط بالكامل */
+export interface SheetRenderInfo {
+  scale: number;
+  fits: boolean;
 }
 
 export const PAPER_DIMENSIONS_MM: Record<PaperFormat, { width: number; height: number }> = {
@@ -61,6 +75,7 @@ export const PAPER_DIMENSIONS_MM: Record<PaperFormat, { width: number; height: n
   a3: { width: 420, height: 297 },
   a2: { width: 594, height: 420 },
   a1: { width: 841, height: 594 },
+  a0: { width: 1189, height: 841 },
   letter: { width: 279.4, height: 215.9 },
 };
 
@@ -320,53 +335,55 @@ export class ExportEngine {
     const drawingAreaW = canvasW - innerMarginPx * 2 - 4 * pxPerMm;
     const drawingAreaH = canvasH - innerMarginPx * 2 - 4 * pxPerMm - titleBlockHeightPx;
 
-    // 4. التقاط رسم الكانفس بدقة عالية وتضمينه في مساحة الرسم
-    const drawingDataUrl = engine.exportDrawingImageDataURL({
-      pixelRatio: 2.5,
+    // 4. رسم المخطط بمقياس حقيقي: 1 م في الواقع = 1000/S مم على الورق
+    const ppm = model.getMeta().scale || 50;
+    const bounds = engine.getDrawingBounds(options.includeBackground);
+    const areaWmm = drawingAreaW / pxPerMm;
+    const areaHmm = drawingAreaH / pxPerMm;
+    const printScale =
+      typeof options.printScale === 'number' && options.printScale > 0
+        ? options.printScale
+        : fitStandardScale(bounds.width, bounds.height, areaWmm * 0.94, areaHmm * 0.94, ppm);
+    const info: SheetRenderInfo = { scale: printScale, fits: fitsAtScale(bounds.width, bounds.height, areaWmm, areaHmm, printScale, ppm) };
+    (canvas as HTMLCanvasElement & { printInfo?: SheetRenderInfo }).printInfo = info;
+    options = { ...options, titleBlock: { ...options.titleBlock, scaleText: String(printScale) } };
+
+    // كثافة صورة المخطط: نفس كثافة الصفحة مع سقف لعدد البكسلات (ورق A1/A0)
+    let renderPxPerMm = pxPerMm;
+    const maxPixels = 36e6;
+    if (drawingAreaW * drawingAreaH > maxPixels) renderPxPerMm *= Math.sqrt(maxPixels / (drawingAreaW * drawingAreaH));
+    const imgW = Math.max(1, Math.round(areaWmm * renderPxPerMm));
+    const imgH = Math.max(1, Math.round(areaHmm * renderPxPerMm));
+    const lineWeightsPx: Record<string, number> = {};
+    for (const [lid, mm] of Object.entries(options.lineWeights || {})) if (mm > 0) lineWeightsPx[lid] = mm * renderPxPerMm;
+    const drawingCanvas = engine.exportDrawingCanvas({
+      pixelRatio: 1,
       includeGrid: options.includeGrid,
       includeBackground: options.includeBackground,
       includeDimensions: options.includeDimensions,
       visibleLayerIds: options.visibleLayerIds,
-      boundsMode: 'drawing',
-      padding: 40,
-      // إصلاح: على "ورق أبيض" كانت الجدران تُرسم بلون الواجهة الداكنة (أبيض تقريباً) فتختفي في الطباعة
+      customWidth: imgW,
+      customHeight: imgH,
+      camera: { centerX: bounds.minX + bounds.width / 2, centerY: bounds.minY + bounds.height / 2, zoom: renderPxPerMm * mmPerWorldPx(printScale, ppm) },
+      lineWeightsPx,
       theme: options.theme === 'white' ? 'light' : 'dark',
     });
+    ctx.drawImage(drawingCanvas, drawingAreaX, drawingAreaY, drawingAreaW, drawingAreaH);
 
-    const img = await this.loadImage(drawingDataUrl);
 
-    // حساب الاحتواء مع الحفاظ على النسبة والتوسيط
-    const imgRatio = img.width / img.height;
-    const targetRatio = drawingAreaW / drawingAreaH;
-    let renderW = drawingAreaW;
-    let renderH = drawingAreaH;
-    let renderX = drawingAreaX;
-    let renderY = drawingAreaY;
-
-    if (imgRatio > targetRatio) {
-      renderW = drawingAreaW;
-      renderH = drawingAreaW / imgRatio;
-      renderY = drawingAreaY + (drawingAreaH - renderH) / 2;
-    } else {
-      renderH = drawingAreaH;
-      renderW = drawingAreaH * imgRatio;
-      renderX = drawingAreaX + (drawingAreaW - renderW) / 2;
-    }
-
-    ctx.drawImage(img, renderX, renderY, renderW, renderH);
-
-    // 5. رسم سهم الشمال المعماري (North Arrow)
+    // 5. رسم سهم الشمال المعماري (North Arrow) — يدور حسب الزاوية المختارة
     if (options.includeNorthArrow) {
       const naX = drawingAreaX + 25 * pxPerMm;
       const naY = drawingAreaY + 25 * pxPerMm;
-      this.drawNorthArrow(ctx, naX, naY, scaleDpi, borderColor, textColor);
+      // إصلاح وحدات: كانت الأبعاد بمعامل scaleDpi (بكسل) فيخرج السهم ونصوصه أصغر بنحو 3.8 مرات من المقصود
+      this.drawNorthArrow(ctx, naX, naY, pxPerMm * 0.7, borderColor, textColor, options.northAngle || 0);
     }
 
-    // 6. رسم مقياس الرسم الشريطي المتري (Graphic Scale Bar)
+    // 6. مسطرة المقياس الحقيقية (أطوال بالمتر مطابقة للمقياس المطبوع)
     if (options.includeScaleBar) {
-      const sbX = drawingAreaX + 20 * pxPerMm;
-      const sbY = drawingAreaY + drawingAreaH - 15 * pxPerMm;
-      this.drawScaleBar(ctx, sbX, sbY, scaleDpi, textColor, borderColor, model.getMeta().scale || 50);
+      const sbX = drawingAreaX + 12 * pxPerMm;
+      const sbY = drawingAreaY + drawingAreaH - 12 * pxPerMm;
+      this.drawScaleBar(ctx, sbX, sbY, pxPerMm * 0.85, textColor, borderColor, printScale, pxPerMm, bgColor);
     }
 
     // 7. رسم مفتاح الرموز الهندسية المصغر (Mini Legend)
@@ -377,7 +394,7 @@ export class ExportEngine {
         options,
         innerMarginPx + 4 * pxPerMm,
         drawingAreaY + 50 * pxPerMm,
-        scaleDpi,
+        pxPerMm * 0.85, // نفس إصلاح الوحدات: مفتاح الرموز كان شبه غير مقروء
         titleBlockBg,
         titleBlockBorder,
         textColor,
@@ -841,12 +858,12 @@ export class ExportEngine {
         const previewCellW = colWidths[1];
         const previewCellCenterX = rX - previewCellW / 2;
         const previewCellCenterY = curY + rowH / 2;
-        if (symDef?.svgPreview) {
+        if (symDef) {
           try {
-            const svgUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(symDef.svgPreview)}`;
-            const img = await this.loadImage(svgUrl);
-            const iconSize = Math.min(rowH * 0.75, previewCellW * 0.75);
-            ctx.drawImage(img, previewCellCenterX - iconSize / 2, previewCellCenterY - iconSize / 2, iconSize, iconSize);
+            // الرمز بشكله الحقيقي كما على لوحة الرسم (كانت معاينة SVG مبسطة لا تطابقه)
+            const iconSize = Math.min(rowH * 0.8, previewCellW * 0.8);
+            const icon = renderSymbolIcon(kind, iconSize * 2, catMeta?.color);
+            ctx.drawImage(icon, previewCellCenterX - iconSize / 2, previewCellCenterY - iconSize / 2, iconSize, iconSize);
           } catch {
             ctx.fillStyle = catMeta?.color || '#0284c7';
             ctx.beginPath();
@@ -1173,11 +1190,19 @@ export class ExportEngine {
     y: number,
     scaleDpi: number,
     borderColor: string,
-    textColor: string
+    textColor: string,
+    angleDeg: number = 0
   ): void {
     const radius = 12 * scaleDpi;
     ctx.save();
     ctx.translate(x, y);
+    // كلمة «شمال» تبقى أفقية أسفل الدائرة، والسهم وحرف N يدوران
+    ctx.fillStyle = textColor;
+    ctx.font = `600 ${Math.round(2.6 * scaleDpi)}px 'Cairo', sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText('شمال', 0, radius + 5 * scaleDpi);
+    ctx.rotate((angleDeg * Math.PI) / 180);
 
     // دائرة البوصلة الخارجية
     ctx.strokeStyle = borderColor;
@@ -1216,9 +1241,6 @@ export class ExportEngine {
     ctx.textBaseline = 'bottom';
     ctx.fillText('N', 0, -arrowLen - 2 * scaleDpi);
 
-    ctx.font = `600 ${Math.round(2.6 * scaleDpi)}px 'Cairo', sans-serif`;
-    ctx.fillText('شمال', 0, radius + 5 * scaleDpi);
-
     ctx.restore();
   }
 
@@ -1232,34 +1254,37 @@ export class ExportEngine {
     scaleDpi: number,
     textColor: string,
     borderColor: string,
-    pixelsPerMeter: number
+    printScale: number,
+    pxPerMm: number,
+    bgColor: string
   ): void {
     ctx.save();
-    const meterPx = (50 / (pixelsPerMeter || 50)) * 12 * scaleDpi;
-    const barH = 3 * scaleDpi;
+    const bar = niceScaleBar(printScale, 70, 4);
+    const segPx = bar.segmentMm * pxPerMm;
+    const barH = 2.2 * pxPerMm;
+    const fmtM = (m: number) => (Number.isInteger(m) ? String(m) : m.toFixed(m < 1 ? 2 : 1).replace(/0+$/, '').replace(/\.$/, ''));
 
     ctx.fillStyle = textColor;
-    ctx.font = `bold ${Math.round(2.6 * scaleDpi)}px 'Cairo', sans-serif`;
-    ctx.textAlign = 'right';
-    ctx.fillText('مقياس رسم متري (SCALE 1:50)', x + meterPx * 4, y - 3 * scaleDpi);
+    ctx.font = `bold ${Math.round(2.8 * scaleDpi)}px 'Cairo', sans-serif`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(`مقياس الرسم 1:${printScale}`, x, y - 2.5 * pxPerMm);
 
-    // قطع المقياس: 0, 1m, 2m, 3m, 4m
-    for (let i = 0; i < 4; i++) {
-      const segX = x + i * meterPx;
-      ctx.fillStyle = i % 2 === 0 ? borderColor : '#ffffff';
-      ctx.fillRect(segX, y, meterPx, barH);
+    for (let i = 0; i < bar.segments; i++) {
+      const segX = x + i * segPx;
+      ctx.fillStyle = i % 2 === 0 ? borderColor : bgColor;
+      ctx.fillRect(segX, y, segPx, barH);
       ctx.strokeStyle = borderColor;
-      ctx.lineWidth = 0.5 * scaleDpi;
-      ctx.strokeRect(segX, y, meterPx, barH);
-
-      // تسميات الأمتار
-      ctx.fillStyle = textColor;
-      ctx.font = `${Math.round(2.3 * scaleDpi)}px 'Cairo', monospace`;
-      ctx.textAlign = 'center';
-      ctx.fillText(`${i}م`, segX, y + barH + 4 * scaleDpi);
+      ctx.lineWidth = 0.25 * pxPerMm;
+      ctx.strokeRect(segX, y, segPx, barH);
     }
-
-    ctx.fillText('4م', x + 4 * meterPx, y + barH + 4 * scaleDpi);
+    ctx.fillStyle = textColor;
+    ctx.font = `${Math.round(2.3 * scaleDpi)}px 'Cairo', sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    for (let i = 0; i <= bar.segments; i++) {
+      ctx.fillText(i === bar.segments ? `${fmtM(i * bar.segmentMeters)} م` : fmtM(i * bar.segmentMeters), x + i * segPx, y + barH + 1 * pxPerMm);
+    }
     ctx.restore();
   }
 
@@ -1288,13 +1313,18 @@ export class ExportEngine {
 
     if (activeSymbols.length === 0 && activeRoutes.length === 0) return;
 
-    // أخذ عينات فريدة
-    const uniqueSymbols = Array.from(new Set(activeSymbols.map((s) => s.symbolKind))).slice(0, 6);
-    const uniqueRoutes = Array.from(new Set(activeRoutes.map((r) => r.routeKind))).slice(0, 3);
+    // أخذ عينات فريدة (مع لون أول رمز من كل نوع كما يظهر على المخطط)
+    const symbolColor = new Map<string, string>();
+    const layerColor = new Map(model.getLayers().map((l) => [l.id, l.color]));
+    for (const s of activeSymbols) if (!symbolColor.has(s.symbolKind)) symbolColor.set(s.symbolKind, s.color || layerColor.get(s.layerId) || '#334155');
+    const uniqueSymbols = Array.from(symbolColor.keys()).slice(0, 12);
+    const uniqueRoutes = Array.from(new Set(activeRoutes.map((r) => r.routeKind))).slice(0, 5);
+    // الألوان الفاتحة جداً (لون الطبقة المعمارية مثلاً) لا تظهر على الورق الأبيض
+    const onPaper = (c: string) => (options.theme === 'white' && /^#(f[0-9a-f]){3}$|^#(e[0-9a-f]|f[0-9a-f]){3}$/i.test(c) ? '#0f172a' : c);
 
     const totalRows = uniqueSymbols.length + uniqueRoutes.length;
-    const legendW = 48 * scaleDpi;
-    const legendH = (8 + totalRows * 5.5) * scaleDpi;
+    const legendW = 58 * scaleDpi;
+    const legendH = (8 + totalRows * 6.5) * scaleDpi;
 
     ctx.save();
     ctx.fillStyle = `${bgColor}ee`;
@@ -1314,20 +1344,17 @@ export class ExportEngine {
     // رسم رموز الـ MEP
     uniqueSymbols.forEach((kind) => {
       const def = getSymbolById(kind);
-      const cat = def ? CATEGORIES_META[def.category] : null;
-
-      // دائرة / نقطة الرمز
-      ctx.fillStyle = cat?.color || '#f59e0b';
-      ctx.beginPath();
-      ctx.arc(x + legendW - 5 * scaleDpi, rowY - 1.2 * scaleDpi, 2 * scaleDpi, 0, Math.PI * 2);
-      ctx.fill();
+      // الرمز بشكله الحقيقي (نفس رسم لوحة الرسم) بدل نقطة ملونة
+      const iconPx = 5.6 * scaleDpi;
+      const icon = renderSymbolIcon(kind, iconPx * 2, onPaper(symbolColor.get(kind) || '#334155'));
+      ctx.drawImage(icon, x + legendW - 3 * scaleDpi - iconPx, rowY - 1.4 * scaleDpi - iconPx / 2, iconPx, iconPx);
 
       ctx.fillStyle = textColor;
       ctx.font = `${Math.round(2.4 * scaleDpi)}px 'Cairo', sans-serif`;
       ctx.textAlign = 'right';
-      ctx.fillText(def?.name || kind, x + legendW - 10 * scaleDpi, rowY);
+      ctx.fillText(def?.name || kind, x + legendW - 11 * scaleDpi, rowY);
 
-      rowY += 5.5 * scaleDpi;
+      rowY += 6.5 * scaleDpi;
     });
 
     // رسم خطوط المسارات
@@ -1335,18 +1362,20 @@ export class ExportEngine {
       const meta = ROUTE_KINDS_META[kind];
 
       ctx.strokeStyle = meta?.defaultColor || '#38bdf8';
-      ctx.lineWidth = 2 * scaleDpi;
+      ctx.lineWidth = 0.6 * scaleDpi;
+      ctx.setLineDash((meta?.dashPattern || []).map((d) => d * 0.25 * scaleDpi));
       ctx.beginPath();
       ctx.moveTo(x + legendW - 3 * scaleDpi, rowY - 1.2 * scaleDpi);
-      ctx.lineTo(x + legendW - 8 * scaleDpi, rowY - 1.2 * scaleDpi);
+      ctx.lineTo(x + legendW - 9 * scaleDpi, rowY - 1.2 * scaleDpi);
       ctx.stroke();
+      ctx.setLineDash([]);
 
       ctx.fillStyle = textColor;
       ctx.font = `${Math.round(2.4 * scaleDpi)}px 'Cairo', sans-serif`;
       ctx.textAlign = 'right';
       ctx.fillText(meta?.name || kind, x + legendW - 10 * scaleDpi, rowY);
 
-      rowY += 5.5 * scaleDpi;
+      rowY += 6.5 * scaleDpi;
     });
 
     ctx.restore();
