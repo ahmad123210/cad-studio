@@ -44,6 +44,7 @@ export type ObjectType =
   | 'route'
   | 'dimension'
   | 'text'
+  | 'room' // بطاقة غرفة: نقطة داخل غرفة مغلقة تحمل اسمها ونوع أرضيتها، والمضلع يُحسب من الجدران
   | 'line'; // خطوط حرة/مستوردة (Linework) مثل خطوط DXF غير الجدارية والأقواس والدوائر
 
 export interface BaseObject {
@@ -67,6 +68,10 @@ export interface WallObject extends BaseObject {
   start: Point;
   end: Point;
   thickness: number;
+  /** ارتفاع الجدار بالمتر (إن لم يُحدد يُستخدم الارتفاع الافتراضي في إعدادات الكميات) */
+  height?: number;
+  /** نوع الجدار: جدار مبنى (افتراضي) أو سور خارجي — السور لا يدخل في كشف الغرف ويُحصر بشكل مفصل */
+  wallKind?: 'building' | 'fence';
 }
 
 /**
@@ -93,6 +98,8 @@ export interface DoorObject extends BaseObject {
   position: number;
   width: number;
   openDirection: DoorOpenDirection;
+  /** ارتفاع الباب بالمتر (افتراضياً من إعدادات الكميات، 2.10م) */
+  height?: number;
 }
 
 /**
@@ -225,7 +232,37 @@ export interface LineObject extends BaseObject {
   lineStyle?: 'solid' | 'dashed' | 'dotted';
 }
 
+/**
+ * بطاقة الغرفة (Room): نقطة داخل غرفة مغلقة. المضلع والمساحة والمحيط تُحسب دائماً من الجدران الحالية
+ * (model/rooms.ts)، فتبقى صحيحة عند تعديل الجدران. سحب البطاقة إلى غرفة أخرى ينقلها إليها.
+ */
+export interface RoomObject extends BaseObject {
+  type: 'room';
+  x: number;
+  y: number;
+  name: string;
+  /** نوع الأرضية (حر: بلاط، سيراميك، رخام، باركيه...) — تُجمع مساحات الأرضيات حسبه */
+  floorType?: string;
+}
+
+/** إعدادات حصر الكميات وقائمة الأسعار — تُحفظ مع المشروع */
+export interface QuantitySettings {
+  /** ارتفاع جدران المبنى الافتراضي (م) */
+  wallHeight: number;
+  /** ارتفاع السور الافتراضي (م) */
+  fenceHeight: number;
+  /** ارتفاع الباب الافتراضي (م) */
+  doorHeight: number;
+  /** نسبة احتياط النزول العمودي تُضاف لأطوال المسارات (%) */
+  routeAllowancePct: number;
+  /** سعر الوحدة لكل بند (المفتاح = معرف البند). غير موجود = خانة فارغة */
+  prices: Record<string, number>;
+  /** إظهار رموز الأبواب والشبابيك (D1، W1…) على المخطط */
+  showOpeningTags?: boolean;
+}
+
 export type ProjectObject =
+  | RoomObject
   | LineObject
   | WallObject
   | DoorObject
@@ -251,6 +288,8 @@ export interface ProjectData {
   backgroundImage?: BackgroundImageData | null;
   sheets?: ProjectSheet[];
   activeSheetId?: string;
+  /** إعدادات الكميات والأسعار (على مستوى المشروع، مشتركة بين اللوحات) */
+  quantities?: QuantitySettings;
   /** إصدار صيغة الملف (انظر model/schema.ts) */
   schemaVersion?: number;
   /** وقت آخر حفظ محلي (لمقارنة نسخ التخزين) */

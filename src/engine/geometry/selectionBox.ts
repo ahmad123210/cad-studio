@@ -74,6 +74,11 @@ export function isObjectInBox(obj: ProjectObject, box: BoxRect, allObjects?: Pro
     }
     return false;
   }
+  if (obj.type === 'room') {
+    // بطاقة الغرفة: صندوق تقريبي حول نقطة الارتكاز (البطاقة متمركزة عليها)
+    const r = obj as unknown as { x: number; y: number };
+    return r.x + 40 >= box.minX && r.x - 40 <= box.maxX && r.y + 20 >= box.minY && r.y - 20 <= box.maxY;
+  }
   if (obj.type === 'text') {
     const txt = obj as TextObject;
     const pad = txt.padding || 6;

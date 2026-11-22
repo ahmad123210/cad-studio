@@ -251,6 +251,46 @@ export const WallProperties: React.FC<PanelContext> = (ctx) => {
             />
           </div>
 
+          {/* نوع الجدار وارتفاعه (لحصر اللياسة والدهان) */}
+          <div className="flex flex-col gap-2 bg-neutral-950/40 p-2.5 rounded-lg border border-neutral-800/80" data-testid="wall-quantity-props">
+            <div className="grid grid-cols-2 gap-1 p-0.5 bg-neutral-800 rounded-md text-xs">
+              {([
+                ['building', 'جدار مبنى'],
+                ['fence', 'سور خارجي'],
+              ] as const).map(([k, label]) => (
+                <button
+                  key={k}
+                  onClick={() => model.updateObject(wall.id, { wallKind: k === 'building' ? undefined : k })}
+                  className={`py-1 rounded ${(wall.wallKind || 'building') === k ? 'bg-sky-600 text-white font-bold' : 'text-neutral-300 hover:bg-neutral-700'}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <label className="flex items-center justify-between gap-2 text-xs">
+              <span className="text-neutral-300 font-semibold">الارتفاع (م):</span>
+              <input
+                type="number"
+                step="0.05"
+                min="0.3"
+                max="30"
+                key={wall.id + String(wall.height ?? '')}
+                defaultValue={wall.height ?? ''}
+                placeholder={String(wall.wallKind === 'fence' ? model.getQuantitySettings().fenceHeight : model.getQuantitySettings().wallHeight)}
+                onBlur={(e) => {
+                  const v = parseFloat(e.target.value);
+                  const next = Number.isFinite(v) && v > 0 ? Math.round(v * 100) / 100 : undefined;
+                  if (next !== wall.height) model.updateObject(wall.id, { height: next });
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                }}
+                className="w-24 bg-neutral-800 border border-neutral-700 rounded px-2 py-1 font-mono-cad text-neutral-200 outline-none text-center focus:border-sky-500"
+              />
+            </label>
+            <span className="text-[10px] text-neutral-500">فارغ = الارتفاع الافتراضي من إعدادات الكميات</span>
+          </div>
+
           {/* إحداثيات نقطة البداية */}
           <div className="flex flex-col gap-1.5 bg-neutral-950/40 p-2.5 rounded-lg border border-neutral-800/80">
             <span className="text-xs font-semibold text-neutral-300">نقطة البداية (Start)</span>

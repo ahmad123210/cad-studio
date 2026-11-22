@@ -79,6 +79,9 @@ import { renderObjectsLayerImpl } from './render/objectsLayer.ts';
 import { renderSymbolImpl } from './render/symbols.ts';
 import { renderRouteImpl } from './render/routes.ts';
 import { renderTextObjectImpl, renderDimensionImpl } from './render/annotations.ts';
+import { getRoomGraphImpl, detectRoomsImpl, roomFaceOfImpl, renderRoomFillsImpl, renderRoomLabelImpl } from './render/rooms.ts';
+import type { RoomGraph, RoomFace } from '../model/rooms.ts';
+import type { RoomObject } from '../model/types.ts';
 import { renderDoorImpl, renderWindowImpl } from './render/openings.ts';
 import { renderWallHandlesImpl } from './render/wallHandles.ts';
 import { renderInteractionLayerImpl, renderAngleGuidelineImpl, renderFloatingBadgeImpl, renderSnapIndicatorOnlyImpl, renderSnapIndicatorShapesImpl } from './render/interactionLayer.ts';
@@ -159,6 +162,9 @@ export class CadEngine {
 
   // إعدادات المظهر والسمة
   theme: 'dark' | 'light' = 'dark';
+
+  /** مخطط الغرف المحسوب من الجدران (يُبطل عند تغير إصدار النموذج) */
+  roomGraphCache: { version: number; graph: RoomGraph } | null = null;
 
   // إعدادات الالتقاط والشبكة
   gridDensity: GridDensity = 'medium';
@@ -387,7 +393,7 @@ export class CadEngine {
                 }
               }
               if (targetObjectId) break;
-            } else if (obj.type === 'text') {
+            } else if (obj.type === 'text' || obj.type === 'room') {
               const t = obj as TextObject;
               if (SnapEngine.distance(worldPoint, { x: t.x, y: t.y }) <= 40) {
                 targetObjectId = t.id;
@@ -1192,6 +1198,30 @@ export class CadEngine {
    * يعامل معاملة العنصر الكامل: تحديد، سحب، تحريك جماعي، تدوير، تحكم بالألوان وحجم الخط
    * تم حذف أي أعمدة أو خطوط إضافية في نهاية النص لضمان نظافة المخطط الهندسي
    */
+  /** مخطط الغرف المغلقة في اللوحة الحالية */
+  public getRoomGraph(): RoomGraph {
+    return getRoomGraphImpl.call(this);
+  }
+
+  /** كشف الغرف: يضيف بطاقة لكل غرفة مغلقة بلا بطاقة (خطوة تراجع واحدة). يعيد عدد المضاف */
+  public detectRooms(): number {
+    const n = detectRoomsImpl.call(this);
+    this.render();
+    return n;
+  }
+
+  public roomFaceOf(room: RoomObject): RoomFace | null {
+    return roomFaceOfImpl.call(this, room);
+  }
+
+  renderRoomFills(rooms: RoomObject[]): void {
+    return renderRoomFillsImpl.call(this, rooms);
+  }
+
+  renderRoomLabel(room: RoomObject, isLocked: boolean, layerOpacity: number): void {
+    return renderRoomLabelImpl.call(this, room, isLocked, layerOpacity);
+  }
+
   renderTextObject(textObj: TextObject, isLocked: boolean, fallbackColor: string, layerOpacity: number): void {
     return renderTextObjectImpl.call(this, textObj, isLocked, fallbackColor, layerOpacity);
   }

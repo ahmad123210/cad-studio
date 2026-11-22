@@ -20,10 +20,12 @@ import {
   DimensionObject,
   TextObject,
   LineObject,
+  RoomObject,
   Layer,
   Point,
 } from '../model/types.ts';
 import { getSymbolById } from '../symbols/registry.ts';
+import { buildRoomGraph, findRoomAt, type RoomGraph } from '../model/rooms.ts';
 
 export interface DxfExportOptions {
   version?: 'R12' | 'AC1015'; // R12 = AC1009 (Universal Compatibility), AC1015 = AutoCAD 2000+
@@ -640,6 +642,7 @@ export function exportProjectToDxf(
   };
 
   // تفريغ جميع الكائنات داخل قسم ENTITIES
+  let roomGraph: RoomGraph | null = null; // يُحسب عند أول بطاقة غرفة فقط (من كل الجدران، حتى المخفية بالفلتر)
   for (const obj of filteredObjects) {
     const layerName = getLayerName(obj.layerId);
 
@@ -856,6 +859,18 @@ export function exportProjectToDxf(
       const midY = (p1.y + p2.y) / 2;
       const dimText = dim.displayText || realLenMeters;
       writeText(midX, midY, dimText, 0.22, layerName, 0, true);
+    }
+
+    // ================= 7.5 بطاقات الغرف: الاسم والمساحة الصافية كنصّين متمركزين =================
+    else if (obj.type === 'room') {
+      const room = obj as RoomObject;
+      if (!roomGraph) roomGraph = buildRoomGraph(objects.filter((o) => o.type === 'wall') as WallObject[]);
+      const face = findRoomAt(roomGraph, { x: room.x, y: room.y });
+      writeText(room.x, room.y, room.name || 'غرفة', 0.2, layerName, 0, true);
+      if (face) {
+        const m2 = (face.netArea / (pixelsPerMeter * pixelsPerMeter)).toFixed(2);
+        writeText(room.x, room.y + 0.3 * pixelsPerMeter, `${m2} m2`, 0.15, layerName, 0, true);
+      }
     }
 
     // ================= 7. الملاحظات والنصوص (Text Annotations) =================

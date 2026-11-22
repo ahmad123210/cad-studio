@@ -103,7 +103,7 @@ function cloneObjectsWithOffset(source: ProjectObject[], offset: number): Projec
       clone.start.y += offset;
       clone.end.x += offset;
       clone.end.y += offset;
-    } else if (clone.type === 'symbol' || clone.type === 'text') {
+    } else if (clone.type === 'symbol' || clone.type === 'text' || clone.type === 'room') {
       clone.x += offset;
       clone.y += offset;
     } else if (clone.type === 'route' || clone.type === 'line') {

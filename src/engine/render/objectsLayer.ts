@@ -18,6 +18,7 @@ import {
   RouteKind,
   TextObject,
   LineObject,
+  RoomObject,
   DoorOpenDirection,
   BackgroundImageData,
 } from '../../model/types.ts';
@@ -120,6 +121,7 @@ export function renderObjectsLayerImpl(this: CadEngine): void {
           return inView(Math.min(d.start.x, d.end.x), Math.min(d.start.y, d.end.y), Math.max(d.start.x, d.end.x), Math.max(d.start.y, d.end.y));
         }
         case 'symbol':
+        case 'room':
         case 'text': {
           const t = o as SymbolObject;
           return inView(t.x - 100, t.y - 100, t.x + 100, t.y + 100);
@@ -182,6 +184,14 @@ export function renderObjectsLayerImpl(this: CadEngine): void {
       if (!this.isObjectSelected(ln.id) && !quickInView(ln)) continue;
       this.renderLinework(ln, layer?.locked ?? false, layer?.color || '#94a3b8', layer?.opacity ?? 1);
     }
+
+    // 0.5 تعبئة الغرف (تحت الجدران)
+    const visibleRooms = objects.filter((o) => {
+      if (o.type !== 'room') return false;
+      const lyr = layerById.get(o.layerId);
+      return !lyr || lyr.visible;
+    }) as RoomObject[];
+    this.renderRoomFills(visibleRooms);
 
     // 1. رسم الجدران
     for (const obj of objects) {
@@ -595,6 +605,13 @@ export function renderObjectsLayerImpl(this: CadEngine): void {
         textObj.color || layer?.color || '#38bdf8',
         layer?.opacity ?? 1
       );
+    }
+
+    // 7.5 بطاقات الغرف (الاسم والمساحة)
+    for (const room of visibleRooms) {
+      if (!this.isObjectSelected(room.id) && !inView(room.x - 200, room.y - 100, room.x + 200, room.y + 100)) continue;
+      const layer = layerById.get(room.layerId);
+      this.renderRoomLabel(room, Boolean(layer?.locked || room.locked), layer?.opacity ?? 1);
     }
 
     // 8. مقابض تعديل الجدار المحدد ومؤشر (+) لإطالته (تُرسم دائماً في أعلى طبقة العناصر لتسهيل الالتقاط المباشر في وضع التحديد فقط)

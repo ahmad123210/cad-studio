@@ -9,6 +9,7 @@
  * المبدأ: لا نرفض الملف بسبب عنصر تالف؛ نصلحه إن أمكن أو نتجاهله، ونعيد قائمة تحذيرات مفهومة للمستخدم.
  */
 
+import { sanitizeQuantitySettings } from './quantitySettings.ts';
 import type { ProjectData, ProjectObject, ProjectSheet, Layer, Point, UnitType } from './types.ts';
 
 export const CURRENT_SCHEMA_VERSION = 2;
@@ -18,7 +19,7 @@ export interface MigrationReport {
   warnings: string[];
 }
 
-const OBJECT_TYPES = new Set(['wall', 'door', 'window', 'dimension', 'symbol', 'route', 'text', 'line']);
+const OBJECT_TYPES = new Set(['wall', 'door', 'window', 'dimension', 'symbol', 'route', 'text', 'line', 'room']);
 const UNITS: UnitType[] = ['meter', 'cm', 'mm'];
 
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -63,6 +64,8 @@ function sanitizeObjects(
         ok = isPt(o.start) && isPt(o.end);
         if (!isNum(o.thickness) || (o.thickness as number) <= 0) o.thickness = 20;
         delete o.rotation; // حقل قديم غير مستخدم (أُزيل في الإصدار 2)
+        if (o.height !== undefined && (!isNum(o.height) || (o.height as number) <= 0)) delete o.height;
+        if (o.wallKind !== undefined && o.wallKind !== 'fence' && o.wallKind !== 'building') delete o.wallKind;
         break;
       case 'dimension':
         ok = isPt(o.start) && isPt(o.end);
@@ -92,6 +95,10 @@ function sanitizeObjects(
         ok = Array.isArray(o.points) && (o.points as unknown[]).every(isPt) && (o.points as unknown[]).length >= 1;
         if (!isNum(o.lengthCalculated)) o.lengthCalculated = 0;
         if (typeof o.routeKind !== 'string') o.routeKind = 'electrical';
+        break;
+      case 'room':
+        ok = isNum(o.x) && isNum(o.y);
+        if (typeof o.name !== 'string') o.name = String(o.name ?? 'غرفة');
         break;
       case 'line':
         ok = Array.isArray(o.points) && (o.points as unknown[]).every(isPt) && (o.points as unknown[]).length >= 2;
@@ -221,6 +228,7 @@ export function migrateProjectData(raw: unknown, defaultLayers: Layer[]): { data
     backgroundImage: src.backgroundImage ?? null,
     sheets,
     activeSheetId,
+    quantities: sanitizeQuantitySettings(src.quantities),
     schemaVersion: CURRENT_SCHEMA_VERSION,
   };
   return { data, report: { fromVersion, warnings } };

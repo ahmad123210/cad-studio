@@ -528,7 +528,7 @@ export function bindEventsImpl(this: CadEngine): void {
                 }
               }
               if (nearbyObjId) break;
-            } else if (obj.type === 'text') {
+            } else if (obj.type === 'text' || obj.type === 'room') {
               const t = obj as TextObject;
               if (SnapEngine.distance(worldRaw, { x: t.x, y: t.y }) <= 30 * zf) {
                 nearbyObjId = t.id;

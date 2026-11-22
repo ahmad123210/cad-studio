@@ -28,6 +28,8 @@ import { CommandManager } from './history.ts';
 import { TransformSpec, transformUpdates } from './transforms.ts';
 import type { EditPlan } from './trimExtend.ts';
 import { CURRENT_SCHEMA_VERSION, migrateProjectData } from './schema.ts';
+import { sanitizeQuantitySettings } from './quantitySettings.ts';
+import type { QuantitySettings } from './types.ts';
 import { idbSaveProject, idbLoadProject, idbAddBackup, idbListBackups, idbGetBackup, BackupEntry } from './storage.ts';
 
 function getObjectTypeName(type: string): string {
@@ -48,6 +50,8 @@ function getObjectTypeName(type: string): string {
       return 'ملاحظة نصية';
     case 'line':
       return 'خط';
+    case 'room':
+      return 'غرفة';
     default:
       return type;
   }
@@ -122,6 +126,19 @@ export class ProjectModel {
 
   public getProjectId(): string {
     return this.projectId;
+  }
+
+  /** إعدادات الكميات وقائمة الأسعار (على مستوى المشروع) */
+  private quantities: QuantitySettings = sanitizeQuantitySettings(undefined);
+
+  public getQuantitySettings(): QuantitySettings {
+    return { ...this.quantities, prices: { ...this.quantities.prices } };
+  }
+
+  /** تحديث الإعدادات/الأسعار. لا تدخل في سجل التراجع (مثل إعدادات العرض) لكنها تُعلّم المشروع كمعدّل */
+  public setQuantitySettings(patch: Partial<QuantitySettings>): void {
+    this.quantities = sanitizeQuantitySettings({ ...this.quantities, ...patch });
+    this.notify();
   }
 
   public getMeta(): ProjectMeta {
@@ -644,7 +661,7 @@ export class ProjectModel {
         (beforeState as any)['points'] = ln.points.map((p) => ({ ...p }));
         ln.points = ln.points.map((p) => ({ x: r6(p.x + delta.x), y: r6(p.y + delta.y) }));
         (afterState as any)['points'] = ln.points.map((p) => ({ ...p }));
-      } else if (obj.type === 'text') {
+      } else if (obj.type === 'text' || obj.type === 'room') {
         const txt = obj as TextObject;
         (beforeState as any)['x'] = txt.x;
         (beforeState as any)['y'] = txt.y;
@@ -966,6 +983,7 @@ export class ProjectModel {
         : null,
       sheets: JSON.parse(JSON.stringify(this.sheets)),
       activeSheetId: this.activeSheetId,
+      quantities: this.getQuantitySettings(),
       schemaVersion: CURRENT_SCHEMA_VERSION,
     };
   }
@@ -977,6 +995,7 @@ export class ProjectModel {
   public loadFromJSON(input: ProjectData): string[] {
     const { data, report } = migrateProjectData(input, DEFAULT_LAYERS);
     this.meta = { ...data.project };
+    this.quantities = sanitizeQuantitySettings(data.quantities);
     this.layers = JSON.parse(JSON.stringify(data.layers));
     this.activeLayerId = this.layers[0]?.id || 'arch';
     this.history.clear();
@@ -1169,6 +1188,7 @@ export class ProjectModel {
       backgroundImage: this.backgroundImage,
       sheets: this.sheets,
       activeSheetId: this.activeSheetId,
+      quantities: this.quantities,
     };
   }
 

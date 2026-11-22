@@ -275,6 +275,29 @@ export const DoorProperties: React.FC<PanelContext> = (ctx) => {
             </div>
           </div>
 
+          {/* ارتفاع الباب (لخصم الفتحة من اللياسة والدهان) */}
+          <label className="flex items-center justify-between gap-2 text-xs">
+            <span className="text-neutral-300 font-semibold">ارتفاع الباب (م):</span>
+            <input
+              type="number"
+              step="0.05"
+              min="0.5"
+              max="6"
+              key={door.id + String(door.height ?? '')}
+              defaultValue={door.height ?? ''}
+              placeholder={String(model.getQuantitySettings().doorHeight)}
+              onBlur={(e) => {
+                const v = parseFloat(e.target.value);
+                const next = Number.isFinite(v) && v > 0 ? Math.round(v * 100) / 100 : undefined;
+                if (next !== door.height) model.updateObject(door.id, { height: next });
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+              }}
+              className="w-24 bg-neutral-800 border border-neutral-700 rounded px-2 py-1 font-mono-cad text-neutral-200 outline-none text-center focus:border-sky-500"
+            />
+          </label>
+
           {/* الطبقة */}
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-semibold text-neutral-300 flex items-center gap-1.5">
