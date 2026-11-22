@@ -58,6 +58,8 @@ export const COMMANDS: CadCommand[] = [
   { id: 'rect', label: 'مستطيل', aliases: ['rect', 'rectangle', 'rec', 'مستطيل'], defaultCodes: [], remappable: true, run: edit('rect') },
   { id: 'circle', label: 'دائرة', aliases: ['circle', 'c', 'ci', 'دائرة'], defaultCodes: [], remappable: true, run: edit('circle') },
   { id: 'arc', label: 'قوس', aliases: ['arc', 'قوس'], defaultCodes: [], remappable: true, run: edit('arc') },
+  { id: 'column', label: 'عمود', aliases: ['column', 'col', 'عمود', 'أعمدة'], defaultCodes: [], remappable: true, run: edit('column') },
+  { id: 'stairs', label: 'درج', aliases: ['stairs', 'stair', 'st', 'درج'], defaultCodes: [], remappable: true, run: edit('stairs') },
   { id: 'polygon', label: 'مضلع منتظم', aliases: ['polygon', 'pol', 'مضلع'], defaultCodes: [], remappable: true, run: edit('polygon') },
   {
     id: 'rooms',

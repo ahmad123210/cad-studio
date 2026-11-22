@@ -81,13 +81,15 @@ import { renderRouteImpl } from './render/routes.ts';
 import { renderTextObjectImpl, renderDimensionImpl } from './render/annotations.ts';
 import { getRoomGraphImpl, detectRoomsImpl, roomFaceOfImpl, renderRoomFillsImpl, renderRoomLabelImpl } from './render/rooms.ts';
 import type { RoomGraph, RoomFace } from '../model/rooms.ts';
-import type { RoomObject } from '../model/types.ts';
+import type { RoomObject, ColumnObject, StairObject } from '../model/types.ts';
+import { renderColumnImpl, renderStairsImpl } from './render/structure.ts';
 import { renderDoorImpl, renderWindowImpl } from './render/openings.ts';
 import { renderWallHandlesImpl } from './render/wallHandles.ts';
 import { renderInteractionLayerImpl, renderAngleGuidelineImpl, renderFloatingBadgeImpl, renderSnapIndicatorOnlyImpl, renderSnapIndicatorShapesImpl } from './render/interactionLayer.ts';
 import { planAlign, ALIGN_LABELS, type AlignMode } from '../model/align.ts';
 // تسجيل الأوامر الموسّعة (أشكال الرسم...) في سجل الأوامر
 import './tools/drawCommands.ts';
+import './tools/structureCommands.ts';
 
 
 export type ToolMode =
@@ -395,7 +397,13 @@ export class CadEngine {
                 }
               }
               if (targetObjectId) break;
-            } else if (obj.type === 'text' || obj.type === 'room') {
+            } else if (obj.type === 'stairs') {
+              const st = obj as unknown as DimensionObject & { width: number };
+              if (SnapEngine.pointToSegmentDistance(worldPoint, st.start, st.end) <= st.width / 2 + 10) {
+                targetObjectId = st.id;
+                break;
+              }
+            } else if (obj.type === 'text' || obj.type === 'room' || obj.type === 'column') {
               const t = obj as TextObject;
               if (SnapEngine.distance(worldPoint, { x: t.x, y: t.y }) <= 40) {
                 targetObjectId = t.id;
@@ -1223,6 +1231,14 @@ export class CadEngine {
 
   public roomFaceOf(room: RoomObject): RoomFace | null {
     return roomFaceOfImpl.call(this, room);
+  }
+
+  renderColumn(col: ColumnObject, isLocked: boolean, layerColor: string, layerOpacity: number): void {
+    return renderColumnImpl.call(this, col, isLocked, layerColor, layerOpacity);
+  }
+
+  renderStairs(st: StairObject, isLocked: boolean, layerColor: string, layerOpacity: number): void {
+    return renderStairsImpl.call(this, st, isLocked, layerColor, layerOpacity);
   }
 
   renderRoomFills(rooms: RoomObject[]): void {

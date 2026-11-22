@@ -426,7 +426,7 @@ export function renderEditPreviewImpl(this: CadEngine, shift: boolean): void {
     const ghost = JSON.parse(JSON.stringify(o)) as ProjectObject;
     const upd = transformUpdates(o, spec, wallIds);
     if (upd) Object.assign(ghost, upd);
-    if (ghost.type === 'wall' || ghost.type === 'dimension') {
+    if (ghost.type === 'wall' || ghost.type === 'dimension' || ghost.type === 'stairs') {
       const g = ghost as WallObject | DimensionObject;
       const a = toS(g.start);
       const b = toS(g.end);
@@ -438,7 +438,7 @@ export function renderEditPreviewImpl(this: CadEngine, shift: boolean): void {
         return [s.x, s.y];
       });
       layer.add(new Konva.Line({ points: pts, stroke: color, strokeWidth: 2, opacity: 0.6, dash: [4, 3], listening: false }));
-    } else if (ghost.type === 'symbol' || ghost.type === 'text' || ghost.type === 'room') {
+    } else if (ghost.type === 'symbol' || ghost.type === 'text' || ghost.type === 'room' || ghost.type === 'column') {
       const s = toS({ x: (ghost as SymbolObject | TextObject).x, y: (ghost as SymbolObject | TextObject).y });
       const r = 10 * zoom * ((ghost as SymbolObject).scale || 1);
       layer.add(new Konva.Circle({ x: s.x, y: s.y, radius: Math.max(4, r), stroke: color, strokeWidth: 1.5, dash: [3, 2], listening: false }));

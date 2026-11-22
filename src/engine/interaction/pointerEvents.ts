@@ -528,7 +528,13 @@ export function bindEventsImpl(this: CadEngine): void {
                 }
               }
               if (nearbyObjId) break;
-            } else if (obj.type === 'text' || obj.type === 'room') {
+            } else if (obj.type === 'stairs') {
+              const st = obj as unknown as DimensionObject & { width: number };
+              if (SnapEngine.pointToSegmentDistance(worldRaw, st.start, st.end) <= st.width / 2 + 6 * zf) {
+                nearbyObjId = st.id;
+                break;
+              }
+            } else if (obj.type === 'text' || obj.type === 'room' || obj.type === 'column') {
               const t = obj as TextObject;
               if (SnapEngine.distance(worldRaw, { x: t.x, y: t.y }) <= 30 * zf) {
                 nearbyObjId = t.id;

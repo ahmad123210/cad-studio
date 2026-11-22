@@ -75,8 +75,8 @@ export function selectSimilarImpl(this: CadEngine, targetId?: string): void {
       matches = allObjects.filter((o) => o.type === 'dimension');
     } else if (target.type === 'text') {
       matches = allObjects.filter((o) => o.type === 'text');
-    } else if (target.type === 'room') {
-      matches = allObjects.filter((o) => o.type === 'room');
+    } else if (target.type === 'room' || target.type === 'column' || target.type === 'stairs') {
+      matches = allObjects.filter((o) => o.type === target.type);
     }
 
     this.selectObjects(matches.map((o) => o.id));

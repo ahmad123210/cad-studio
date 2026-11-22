@@ -44,6 +44,7 @@ export type ObjectType =
   | 'route'
   | 'dimension'
   | 'text'
+  | 'stairs' // درج: محور الصعود (بداية/نهاية) وعرض، وعدد الدرجات يُحسب من الطول وعمق النائمة
   | 'room' // بطاقة غرفة: نقطة داخل غرفة مغلقة تحمل اسمها ونوع أرضيتها، والمضلع يُحسب من الجدران
   | 'line'; // خطوط حرة/مستوردة (Linework) مثل خطوط DXF غير الجدارية والأقواس والدوائر
 
@@ -285,7 +286,38 @@ export interface PrintSettings {
   allSheets?: boolean;
 }
 
+/**
+ * العمود (Column): مستطيل أو دائري متمركز على نقطة. الأبعاد بوحدة العالم.
+ */
+export interface ColumnObject extends BaseObject {
+  type: 'column';
+  x: number;
+  y: number;
+  /** العرض والعمق بوحدة العالم (للدائري: width = القطر) */
+  width: number;
+  depth: number;
+  rotation: number;
+  shape?: 'rect' | 'round';
+}
+
+/**
+ * الدرج (Stairs): من start (أسفل الدرج) إلى end (أعلاه) بعرض width (وحدة العالم).
+ * عدد النائمات = تقريب(الطول ÷ عمق النائمة)، ويتحدث تلقائياً عند تمطيط الدرج بالماوس.
+ */
+export interface StairObject extends BaseObject {
+  type: 'stairs';
+  start: Point;
+  end: Point;
+  width: number;
+  /** عمق النائمة بالمتر (افتراضي 0.28) */
+  tread?: number;
+  /** ارتفاع القائمة بالمتر (افتراضي 0.17) */
+  riser?: number;
+}
+
 export type ProjectObject =
+  | ColumnObject
+  | StairObject
   | RoomObject
   | LineObject
   | WallObject

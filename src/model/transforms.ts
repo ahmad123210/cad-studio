@@ -16,6 +16,8 @@ import type {
   TextObject,
   LineObject,
   RoomObject,
+  ColumnObject,
+  StairObject,
   DoorOpenDirection,
 } from './types.ts';
 
@@ -147,6 +149,22 @@ export function transformUpdates(
       const l = obj as LineObject;
       return { points: l.points.map(spec.map) } as Partial<LineObject>;
     }
+    case 'column': {
+      const col = obj as ColumnObject;
+      const p = spec.map({ x: col.x, y: col.y });
+      const upd: Partial<ColumnObject> = { x: p.x, y: p.y, rotation: newRotation(col.rotation || 0, spec, false) };
+      if (spec.scale !== 1) {
+        upd.width = r6(col.width * spec.scale);
+        upd.depth = r6(col.depth * spec.scale);
+      }
+      return upd as Partial<ProjectObject>;
+    }
+    case 'stairs': {
+      const st = obj as StairObject;
+      const upd: Partial<StairObject> = { start: spec.map(st.start), end: spec.map(st.end) };
+      if (spec.scale !== 1) upd.width = r6(st.width * spec.scale);
+      return upd as Partial<ProjectObject>;
+    }
     case 'room': {
       // بطاقة الغرفة نقطة فقط: تُنقل ولا تُدوَّر/تُحجَّم
       const r = obj as RoomObject;
@@ -220,10 +238,10 @@ export function selectionCenter(objs: ProjectObject[]): Point | null {
     if (p.y > maxY) maxY = p.y;
   };
   for (const o of objs) {
-    if (o.type === 'wall' || o.type === 'dimension') {
+    if (o.type === 'wall' || o.type === 'dimension' || o.type === 'stairs') {
       inc((o as WallObject).start);
       inc((o as WallObject).end);
-    } else if (o.type === 'symbol' || o.type === 'text' || o.type === 'room') {
+    } else if (o.type === 'symbol' || o.type === 'text' || o.type === 'room' || o.type === 'column') {
       inc({ x: (o as SymbolObject).x, y: (o as SymbolObject).y });
     } else if (o.type === 'route' || o.type === 'line') {
       (o as RouteObject | LineObject).points.forEach(inc);

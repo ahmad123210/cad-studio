@@ -52,6 +52,10 @@ function getObjectTypeName(type: string): string {
       return 'خط';
     case 'room':
       return 'غرفة';
+    case 'column':
+      return 'عمود';
+    case 'stairs':
+      return 'درج';
     default:
       return type;
   }
@@ -674,7 +678,15 @@ export class ProjectModel {
         (beforeState as any)['points'] = ln.points.map((p) => ({ ...p }));
         ln.points = ln.points.map((p) => ({ x: r6(p.x + delta.x), y: r6(p.y + delta.y) }));
         (afterState as any)['points'] = ln.points.map((p) => ({ ...p }));
-      } else if (obj.type === 'text' || obj.type === 'room') {
+      } else if (obj.type === 'stairs') {
+        const st = obj as unknown as DimensionObject;
+        (beforeState as any)['start'] = { ...st.start };
+        (beforeState as any)['end'] = { ...st.end };
+        st.start = { x: r6(st.start.x + delta.x), y: r6(st.start.y + delta.y) };
+        st.end = { x: r6(st.end.x + delta.x), y: r6(st.end.y + delta.y) };
+        (afterState as any)['start'] = { ...st.start };
+        (afterState as any)['end'] = { ...st.end };
+      } else if (obj.type === 'text' || obj.type === 'room' || obj.type === 'column') {
         const txt = obj as TextObject;
         (beforeState as any)['x'] = txt.x;
         (beforeState as any)['y'] = txt.y;

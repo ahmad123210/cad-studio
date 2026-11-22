@@ -47,6 +47,13 @@ export function objectBounds(o: ProjectObject): Box | null {
     const pad = (w.thickness || 0) / 2;
     inc(w.start, pad);
     inc(w.end, pad);
+  } else if (o.type === 'stairs') {
+    const st = o as unknown as { start: Point; end: Point; width: number };
+    inc(st.start, st.width / 2);
+    inc(st.end, st.width / 2);
+  } else if (o.type === 'column') {
+    const c = o as unknown as { x: number; y: number; width: number; depth: number };
+    inc({ x: c.x, y: c.y }, Math.max(c.width, c.depth) / 2);
   } else if (o.type === 'dimension') {
     inc((o as DimensionObject).start);
     inc((o as DimensionObject).end);

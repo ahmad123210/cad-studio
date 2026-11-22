@@ -74,6 +74,15 @@ export function isObjectInBox(obj: ProjectObject, box: BoxRect, allObjects?: Pro
     }
     return false;
   }
+  if (obj.type === 'column') {
+    const c = obj as unknown as { x: number; y: number; width: number; depth: number };
+    const r = Math.max(c.width, c.depth) / 2;
+    return c.x + r >= box.minX && c.x - r <= box.maxX && c.y + r >= box.minY && c.y - r <= box.maxY;
+  }
+  if (obj.type === 'stairs') {
+    const st = obj as unknown as { start: Point; end: Point };
+    return pointInBox(st.start, box) || pointInBox(st.end, box) || segmentIntersectsBox(st.start, st.end, box);
+  }
   if (obj.type === 'room') {
     // بطاقة الغرفة: صندوق تقريبي حول نقطة الارتكاز (البطاقة متمركزة عليها)
     const r = obj as unknown as { x: number; y: number };

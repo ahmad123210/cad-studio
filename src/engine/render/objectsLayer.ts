@@ -19,6 +19,8 @@ import {
   TextObject,
   LineObject,
   RoomObject,
+  ColumnObject,
+  StairObject,
   DoorOpenDirection,
   BackgroundImageData,
 } from '../../model/types.ts';
@@ -121,11 +123,17 @@ export function renderObjectsLayerImpl(this: CadEngine): void {
           const d = o as DimensionObject;
           return inView(Math.min(d.start.x, d.end.x), Math.min(d.start.y, d.end.y), Math.max(d.start.x, d.end.x), Math.max(d.start.y, d.end.y));
         }
+        case 'column':
         case 'symbol':
         case 'room':
         case 'text': {
           const t = o as SymbolObject;
           return inView(t.x - 100, t.y - 100, t.x + 100, t.y + 100);
+        }
+        case 'stairs': {
+          const st = o as StairObject;
+          const r = st.width / 2 + 40;
+          return inView(Math.min(st.start.x, st.end.x) - r, Math.min(st.start.y, st.end.y) - r, Math.max(st.start.x, st.end.x) + r, Math.max(st.start.y, st.end.y) + r);
         }
         case 'route':
         case 'line': {
@@ -501,6 +509,22 @@ export function renderObjectsLayerImpl(this: CadEngine): void {
       if (skipForBatch(win.id, wall.id)) continue;
 
       this.renderWindow(win, wall, layer?.locked ?? false);
+    }
+
+    // 3.5 العناصر الإنشائية: الدرج ثم الأعمدة (فوق الجدران وتحت الأبعاد والرموز)
+    for (const obj of objects) {
+      if (obj.type !== 'stairs') continue;
+      const layer = layerById.get(obj.layerId);
+      if (layer && !layer.visible) continue;
+      if (!this.isObjectSelected(obj.id) && !quickInView(obj)) continue;
+      this.renderStairs(obj as StairObject, Boolean(layer?.locked || obj.locked), layer?.color || '#e5e7eb', layer?.opacity ?? 1);
+    }
+    for (const obj of objects) {
+      if (obj.type !== 'column') continue;
+      const layer = layerById.get(obj.layerId);
+      if (layer && !layer.visible) continue;
+      if (!this.isObjectSelected(obj.id) && !quickInView(obj)) continue;
+      this.renderColumn(obj as ColumnObject, Boolean(layer?.locked || obj.locked), layer?.color || '#e5e7eb', layer?.opacity ?? 1);
     }
 
     // 4. رسم الأبعاد الهندسية (Dimensions - المرحلة 3)
