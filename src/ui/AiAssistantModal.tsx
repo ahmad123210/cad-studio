@@ -23,13 +23,34 @@ import {
   Copy,
   Check,
   RefreshCw,
+  Server,
+  Cpu,
 } from 'lucide-react';
+import { getLang } from '../i18n/index.ts';
 import { ProjectModel } from '../model/project.ts';
 import {
   runEngineeringAudit,
   AuditSummary,
-  requestAiEngineeringAdvice,
+  requestAiEngineeringAdviceDetailed,
+  getAiServerConfig,
+  setAiServerConfig,
+  checkAiServer,
+  type AiServerStatus,
+  type AiAdviceSource,
+  type AiFallbackReason,
 } from '../engine/aiInspector.ts';
+
+/** سبب اللجوء للتحليل المحلي بكلمات المستخدم */
+const REASON_TEXT: Record<AiFallbackReason, string> = {
+  NO_SERVER: 'لم يُضبط عنوان الخادم',
+  UNREACHABLE: 'تعذر الوصول إلى الخادم',
+  NO_API_KEY: 'المفتاح غير مضبوط على الخادم',
+  BAD_TOKEN: 'رمز الوصول غير صحيح',
+  RATE_LIMIT: 'تجاوزت حد الطلبات مؤقتاً',
+  MODEL_ERROR: 'خطأ من خدمة الذكاء الاصطناعي',
+  EMPTY: 'رد فارغ من الخدمة',
+  TIMEOUT: 'انتهت مهلة الاتصال',
+};
 
 interface AiAssistantModalProps {
   model: ProjectModel;
@@ -50,14 +71,26 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
 
   // شات المساعد الذكي
   const [messages, setMessages] = useState<
-    { sender: 'user' | 'assistant'; text: string; timestamp: number }[]
+    { sender: 'user' | 'assistant'; text: string; timestamp: number; source?: AiAdviceSource; reason?: AiFallbackReason; model?: string }[]
   >([]);
+  // إعداد خادم المساعد (مفتاح Gemini على الخادم فقط؛ هنا العنوان ورمز وصول اختياري)
+  const [serverCfg, setServerCfg] = useState(() => getAiServerConfig());
+  const [serverStatus, setServerStatus] = useState<AiServerStatus | null>(null);
+  const [showServerCfg, setShowServerCfg] = useState(false);
+  const refreshServerStatus = (cfg = getAiServerConfig()) => {
+    setServerStatus(null);
+    checkAiServer(cfg).then(setServerStatus);
+  };
   const [inputPrompt, setInputPrompt] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // تحديث نتائج الفحص عند فتح النافذة
+  useEffect(() => {
+    if (isOpen) refreshServerStatus();
+  }, [isOpen]);
+
   useEffect(() => {
     if (isOpen) {
       const newAudit = runEngineeringAudit(model);
@@ -97,10 +130,10 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
     setIsLoading(true);
 
     try {
-      const responseText = await requestAiEngineeringAdvice(model, query, audit);
+      const r = await requestAiEngineeringAdviceDetailed(model, query, audit, { lang: getLang() });
       setMessages((prev) => [
         ...prev,
-        { sender: 'assistant', text: responseText, timestamp: Date.now() },
+        { sender: 'assistant', text: r.text, timestamp: Date.now(), source: r.source, reason: r.reason, model: r.model },
       ]);
     } catch {
       setMessages((prev) => [
@@ -220,6 +253,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
             </button>
 
             <button
+              data-testid="ai-tab-chat"
               onClick={() => setActiveTab('chat')}
               className={`pb-3 text-xs font-semibold flex items-center gap-2 transition-colors border-b-2 ${
                 activeTab === 'chat'
@@ -370,6 +404,69 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
           ) : (
             /* تبويب الشات والمستشار الذكي */
             <div className="flex flex-col h-[52vh]">
+              {/* حالة خادم المساعد وإعداده */}
+              <div className="mb-2 shrink-0 rounded-xl border border-neutral-800 bg-neutral-950/60 px-3 py-2 text-[11px]" data-testid="ai-server-panel">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5" data-testid="ai-server-status">
+                    <Server size={13} className="text-neutral-400" />
+                    {serverStatus === null ? (
+                      <span className="text-neutral-400">جارٍ فحص الخادم…</span>
+                    ) : serverStatus.reachable && serverStatus.available && serverStatus.authorized !== false ? (
+                      <span className="text-emerald-400">
+                        متصل بالخادم — <span data-no-i18n>{serverStatus.model}</span>
+                      </span>
+                    ) : serverStatus.reachable && serverStatus.authorized === false ? (
+                      <span className="text-amber-400">الخادم يتطلب رمز وصول صحيحاً</span>
+                    ) : serverStatus.reachable ? (
+                      <span className="text-amber-400">الخادم متاح لكن مفتاح الذكاء الاصطناعي غير مضبوط عليه</span>
+                    ) : (
+                      <span className="text-neutral-400">وضع التحليل المحلي (دون خادم)</span>
+                    )}
+                  </div>
+                  <button onClick={() => setShowServerCfg((v) => !v)} className="text-sky-400 hover:text-sky-300" data-testid="ai-server-toggle">
+                    إعداد الخادم
+                  </button>
+                </div>
+                {showServerCfg && (
+                  <div className="mt-2 grid grid-cols-[1fr_1fr_auto] gap-2 items-end">
+                    <label className="flex flex-col gap-1">
+                      <span className="text-neutral-400">عنوان الخادم (فارغ = نفس الموقع)</span>
+                      <input
+                        dir="ltr"
+                        value={serverCfg.url}
+                        onChange={(e) => setServerCfg({ ...serverCfg, url: e.target.value })}
+                        placeholder="https://cad.example.com"
+                        className="bg-neutral-900 border border-neutral-700 rounded-md px-2 py-1 text-xs font-mono outline-none focus:border-sky-500"
+                        data-testid="ai-server-url"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1">
+                      <span className="text-neutral-400">رمز الوصول (اختياري — ليس مفتاح Gemini)</span>
+                      <input
+                        dir="ltr"
+                        type="password"
+                        value={serverCfg.token}
+                        onChange={(e) => setServerCfg({ ...serverCfg, token: e.target.value })}
+                        className="bg-neutral-900 border border-neutral-700 rounded-md px-2 py-1 text-xs font-mono outline-none focus:border-sky-500"
+                        data-testid="ai-server-token"
+                      />
+                    </label>
+                    <button
+                      onClick={() => {
+                        setAiServerConfig(serverCfg);
+                        refreshServerStatus(serverCfg);
+                      }}
+                      className="px-3 py-1.5 rounded-md bg-sky-600 hover:bg-sky-500 text-white font-bold"
+                      data-testid="ai-server-save"
+                    >
+                      حفظ وفحص
+                    </button>
+                    <p className="col-span-3 text-[10px] leading-5 text-neutral-500">
+                      مفتاح الذكاء الاصطناعي يبقى على الخادم في متغير البيئة GEMINI_API_KEY ولا يُحفظ في التطبيق. دون خادم يعمل المساعد بالتحليل الهندسي المحلي.
+                    </p>
+                  </div>
+                )}
+              </div>
               {/* أزرار التحليل السريع */}
               <div className="flex items-center gap-2 overflow-x-auto pb-3 mb-2 border-b border-neutral-800 shrink-0">
                 <span className="text-[11px] text-neutral-400 shrink-0">تحليل سريع:</span>
@@ -419,11 +516,29 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                           : 'bg-neutral-950/70 text-neutral-200 border border-neutral-800 rounded-bl-xs'
                       }`}
                     >
-                      <div className="whitespace-pre-wrap font-sans">{msg.text}</div>
+                      <div className="whitespace-pre-wrap font-sans" data-no-i18n={msg.sender === 'assistant' && idx > 0 ? '' : undefined}>
+                        {msg.text}
+                      </div>
 
                       {msg.sender === 'assistant' && (
                         <div className="mt-2.5 pt-2 border-t border-neutral-800/80 flex items-center justify-between text-[10px] text-neutral-400">
-                          <span>المساعد الهندسي الذكي</span>
+                          <span className="flex items-center gap-1" data-testid={msg.source ? `ai-source-${msg.source}` : undefined}>
+                            {msg.source === 'server' ? (
+                              <>
+                                <Server size={11} className="text-emerald-400" />
+                                <span>عبر الخادم</span>
+                                {msg.model && <span data-no-i18n>· {msg.model}</span>}
+                              </>
+                            ) : msg.source === 'offline' ? (
+                              <>
+                                <Cpu size={11} className="text-amber-400" />
+                                <span>تحليل محلي</span>
+                                {msg.reason && <span>· {REASON_TEXT[msg.reason]}</span>}
+                              </>
+                            ) : (
+                              <span>المساعد الهندسي الذكي</span>
+                            )}
+                          </span>
                           <button
                             onClick={() => handleCopy(msg.text, idx)}
                             className="flex items-center gap-1 hover:text-white transition-colors"
