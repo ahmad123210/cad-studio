@@ -375,16 +375,95 @@ export function runEngineeringAudit(model: ProjectModel): AuditSummary {
   };
 }
 
+// ─────────────── اتصال المساعد بالخادم (المرحلة 19) ───────────────
+// مفتاح Gemini لا يوجد في التطبيق إطلاقاً؛ التطبيق يكلم خادم المشروع، والخادم وحده يحمل المفتاح.
+// في المتصفح يُستخدم الخادم نفسه الذي قدّم الصفحة. في نسخة ويندوز (file://) يُضبط عنوان الخادم من نافذة المساعد.
+
+export interface AiServerConfig {
+  /** عنوان الخادم مثل https://cad.example.com — فارغ = نفس مصدر الصفحة */
+  url: string;
+  /** رمز وصول اختياري يحدده صاحب الخادم (AI_ACCESS_TOKEN) — ليس مفتاح Gemini */
+  token: string;
+}
+
+const AI_CONFIG_KEY = 'cad_ai_server';
+
+export function getAiServerConfig(): AiServerConfig {
+  try {
+    const v = JSON.parse(localStorage.getItem(AI_CONFIG_KEY) || '{}');
+    return { url: typeof v.url === 'string' ? v.url : '', token: typeof v.token === 'string' ? v.token : '' };
+  } catch {
+    return { url: '', token: '' };
+  }
+}
+
+export function setAiServerConfig(cfg: AiServerConfig): void {
+  try {
+    localStorage.setItem(AI_CONFIG_KEY, JSON.stringify({ url: cfg.url.trim(), token: cfg.token.trim() }));
+  } catch {
+    /* تخزين غير متاح */
+  }
+}
+
+/** عنوان مسار في الخادم، أو null إن لم يكن هناك خادم معروف (نسخة سطح المكتب دون إعداد) */
+export function aiEndpoint(path: string, cfg = getAiServerConfig(), loc: { protocol: string } = window.location): string | null {
+  const base = cfg.url.trim().replace(/\/+$/, '');
+  if (base) {
+    if (!/^https?:\/\//i.test(base)) return null;
+    return `${base}${path}`;
+  }
+  return /^https?:$/.test(loc.protocol) ? path : null;
+}
+
+export type AiAdviceSource = 'server' | 'offline';
+export type AiFallbackReason = 'NO_SERVER' | 'UNREACHABLE' | 'NO_API_KEY' | 'BAD_TOKEN' | 'RATE_LIMIT' | 'MODEL_ERROR' | 'EMPTY' | 'TIMEOUT';
+
+export interface AiAdviceResult {
+  text: string;
+  source: AiAdviceSource;
+  model?: string;
+  reason?: AiFallbackReason;
+}
+
+export interface AiServerStatus {
+  reachable: boolean;
+  available: boolean;
+  model?: string;
+  tokenRequired?: boolean;
+  authorized?: boolean;
+}
+
+const authHeaders = (cfg: AiServerConfig): Record<string, string> => (cfg.token ? { 'X-CAD-Access-Token': cfg.token } : {});
+
+export async function checkAiServer(cfg = getAiServerConfig()): Promise<AiServerStatus> {
+  const url = aiEndpoint('/api/ai-status', cfg);
+  if (!url) return { reachable: false, available: false };
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const r = await fetch(url, { headers: authHeaders(cfg), signal: ctrl.signal });
+    if (!r.ok) return { reachable: false, available: false };
+    const d = await r.json();
+    return { reachable: true, available: Boolean(d.available), model: d.model, tokenRequired: Boolean(d.tokenRequired), authorized: d.authorized !== false };
+  } catch {
+    return { reachable: false, available: false };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /**
- * طلب استشارة هندسية ذكية من المساعد الهندسي الذكي
- * يتصل أولاً بـ /api/ai-assistant، وإذا كان دون اتصال يقدم تحليلاً برمجياً متقدماً ومفصلاً
+ * طلب استشارة هندسية ذكية: عبر الخادم إن أمكن، وإلا تحليل محلي مفصل دون إنترنت،
+ * مع بيان المصدر وسبب اللجوء للتحليل المحلي.
  */
-export async function requestAiEngineeringAdvice(
+export async function requestAiEngineeringAdviceDetailed(
   model: ProjectModel,
   userPrompt: string,
-  audit: AuditSummary
-): Promise<string> {
+  audit: AuditSummary,
+  opts: { lang?: 'ar' | 'en'; timeoutMs?: number } = {}
+): Promise<AiAdviceResult> {
   const meta = model.getMeta();
+  const cfg = getAiServerConfig();
   const summaryPayload = {
     projectName: meta.name,
     scale: meta.scale,
@@ -398,27 +477,40 @@ export async function requestAiEngineeringAdvice(
       codeReference: i.codeReference,
     })),
     userPrompt,
+    lang: opts.lang ?? 'ar',
   };
+  const offline = (reason: AiFallbackReason): AiAdviceResult => ({
+    text: generateOfflineEngineeringReport(audit, userPrompt, meta.name),
+    source: 'offline',
+    reason,
+  });
 
+  const url = aiEndpoint('/api/ai-assistant', cfg);
+  if (!url) return offline('NO_SERVER');
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 60000);
   try {
-    const response = await fetch('/api/ai-assistant', {
+    const response = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders(cfg) },
       body: JSON.stringify(summaryPayload),
+      signal: ctrl.signal,
     });
-
-    if (response.ok) {
-      const data = await response.json();
-      if (data.advice) {
-        return data.advice;
-      }
-    }
-  } catch {
-    // خطأ في الاتصال بالشبكة أو عدم وجود خادم، يتم استخدام المحرك الهندسي المحلي المدمج
+    const data = await response.json().catch(() => ({}));
+    if (response.ok && data.advice) return { text: data.advice, source: 'server', model: data.model };
+    if (response.status === 401) return offline('BAD_TOKEN');
+    if (response.status === 429) return offline('RATE_LIMIT');
+    return offline((data.fallbackReason as AiFallbackReason) || 'UNREACHABLE');
+  } catch (err) {
+    return offline((err as Error)?.name === 'AbortError' ? 'TIMEOUT' : 'UNREACHABLE');
+  } finally {
+    clearTimeout(timer);
   }
+}
 
-  // المولد الهندسي الذكي المحلي (Rule-Based Generative Engine)
-  return generateOfflineEngineeringReport(audit, userPrompt, meta.name);
+/** الواجهة السابقة: تعيد النص فقط (محفوظة للتوافق) */
+export async function requestAiEngineeringAdvice(model: ProjectModel, userPrompt: string, audit: AuditSummary): Promise<string> {
+  return (await requestAiEngineeringAdviceDetailed(model, userPrompt, audit)).text;
 }
 
 /**
