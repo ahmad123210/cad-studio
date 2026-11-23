@@ -405,6 +405,12 @@ export default function App() {
   const [isScheduleBOQOpen, setIsScheduleBOQOpen] = useState(false);
   const [isBlocksOpen, setIsBlocksOpen] = useState(false);
   const [isMepOpen, setIsMepOpen] = useState(false);
+  // تغيير لغة الواجهة: إعادة رسم اللوحة لتُترجم نصوص Canvas (المرحلة 19)
+  useEffect(() => {
+    const rerender = () => engineRef.current?.render();
+    window.addEventListener('cad:lang', rerender);
+    return () => window.removeEventListener('cad:lang', rerender);
+  }, []);
   useEffect(() => {
     const open = () => setIsMepOpen(true);
     window.addEventListener('cad:open-mep', open);

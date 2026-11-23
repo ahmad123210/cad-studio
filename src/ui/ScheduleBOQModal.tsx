@@ -7,6 +7,7 @@
  * الحسابات كلها في model/quantities.ts (دالة صرفة مختبرة).
  */
 
+import { localizeCsv } from '../i18n/workbook.ts';
 import React, { useMemo, useState, useSyncExternalStore } from 'react';
 import { X, Download, Copy, Check, TableProperties, LayoutGrid, AlertTriangle, FileSpreadsheet } from 'lucide-react';
 import { ProjectModel } from '../model/project.ts';
@@ -140,7 +141,7 @@ export const ScheduleBOQModal: React.FC<ScheduleBOQModalProps> = ({ model, isOpe
       }
     }
     if (anyPrice) csv += `,,,,${esc('المجموع')},${grandTotal.toFixed(2)}\n`;
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const blob = new Blob([localizeCsv(csv)], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;

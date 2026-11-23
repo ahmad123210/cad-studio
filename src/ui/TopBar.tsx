@@ -26,6 +26,7 @@ import {
   Ruler,
 } from 'lucide-react';
 import { ProjectModel } from '../model/project.ts';
+import { getLang, setLang, type UiLang } from '../i18n/index.ts';
 import { ProjectData, UnitType } from '../model/types.ts';
 
 interface TopBarProps {
@@ -79,6 +80,7 @@ export const TopBar: React.FC<TopBarProps> = ({
 }) => {
   const meta = model.getMeta();
   const [isEditingName, setIsEditingName] = useState(false);
+  const [uiLang, setUiLang] = useState<UiLang>(getLang());
   const [projectName, setProjectName] = useState(meta.name);
   const [showSaveMenu, setShowSaveMenu] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -158,7 +160,7 @@ export const TopBar: React.FC<TopBarProps> = ({
               className="text-sm font-semibold text-[var(--cad-text-primary)] hover:text-sky-400 px-2 py-1 rounded hover:bg-[var(--cad-surface-hover)] transition-colors flex items-center gap-1"
               title="انقر لتعديل اسم المشروع"
             >
-              <span>{meta.name || 'مشروع بدون اسم'}</span>
+              {meta.name ? <span data-no-i18n>{meta.name}</span> : <span>مشروع بدون اسم</span>}
               <span className="text-xs text-[var(--cad-text-muted)]">✏️</span>
             </button>
           )}
@@ -363,8 +365,23 @@ export const TopBar: React.FC<TopBarProps> = ({
           </button>
         )}
 
+        {/* تبديل لغة الواجهة عربي/إنجليزي (المرحلة 19) */}
+        <button
+          data-testid="lang-toggle"
+          data-no-i18n
+          onClick={() => {
+            const next = uiLang === 'en' ? 'ar' : 'en';
+            void setLang(next).then(() => setUiLang(next));
+          }}
+          className="px-2 py-1.5 rounded-md bg-[var(--cad-panel-bg)] hover:bg-[var(--cad-surface-hover)] border border-[var(--cad-border)] text-[var(--cad-text-primary)] transition-colors shadow-xs text-[11px] font-bold min-w-[34px]"
+          title={uiLang === 'en' ? 'التبديل إلى العربية' : 'Switch to English'}
+        >
+          {uiLang === 'en' ? 'ع' : 'EN'}
+        </button>
+
         {/* مفتاح تبديل الوضع الداكن والنهاري (المرحلة 3) */}
         <button
+          data-testid="theme-toggle"
           onClick={onToggleTheme}
           className="p-1.5 rounded-md bg-[var(--cad-panel-bg)] hover:bg-[var(--cad-surface-hover)] border border-[var(--cad-border)] text-[var(--cad-text-primary)] transition-colors shadow-xs"
           title={theme === 'dark' ? 'التبديل إلى الوضع النهاري (Light Mode)' : 'التبديل إلى الوضع الداكن (Dark Mode)'}
