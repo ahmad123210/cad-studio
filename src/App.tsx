@@ -24,6 +24,11 @@ import { CameraState } from './engine/camera.ts';
 import { TopBar } from './ui/TopBar.tsx';
 import { LeftToolbar } from './ui/LeftToolbar.tsx';
 import { PropertiesPanel } from './ui/PropertiesPanel.tsx';
+import { CommandPalette, type PaletteAction } from './ui/CommandPalette.tsx';
+import { TemplatesModal } from './ui/TemplatesModal.tsx';
+import { OnboardingTour } from './ui/OnboardingTour.tsx';
+import { buildTemplateProject, PROJECT_TEMPLATES, type ProjectTemplate } from './model/templates.ts';
+import { getLang, setLang } from './i18n/index.ts';
 import { LayersPanel } from './ui/LayersPanel.tsx';
 import { StatusBar } from './ui/StatusBar.tsx';
 import { HelpModal } from './ui/HelpModal.tsx';
@@ -405,6 +410,7 @@ export default function App() {
   const [isScheduleBOQOpen, setIsScheduleBOQOpen] = useState(false);
   const [isBlocksOpen, setIsBlocksOpen] = useState(false);
   const [isMepOpen, setIsMepOpen] = useState(false);
+  const [isTemplatesOpen, setIsTemplatesOpen] = useState(false);
   // تغيير لغة الواجهة: إعادة رسم اللوحة لتُترجم نصوص Canvas (المرحلة 19)
   useEffect(() => {
     const rerender = () => engineRef.current?.render();
@@ -974,30 +980,29 @@ export default function App() {
     model.redo();
   };
 
-  // مشروع جديد
-  const handleNewProject = () => {
+  // مشروع جديد: يفتح اختيار القالب (فارغ، شقة، فيلا، محل) ثم يؤكد قبل استبدال المشروع الحالي
+  const handleNewProject = () => setIsTemplatesOpen(true);
+
+  const createFromTemplate = (id: ProjectTemplate['id']) => {
+    setIsTemplatesOpen(false);
+    const tpl = PROJECT_TEMPLATES.find((x) => x.id === id);
     setConfirmDialog({
       isOpen: true,
       title: 'إنشاء مشروع جديد',
-      message: 'هل أنت متأكد من إنشاء مشروع جديد؟ سيتم مسح العناصر الحالية إذا لم تكن محفوظة.',
+      message:
+        id === 'empty'
+          ? 'هل أنت متأكد من إنشاء مشروع جديد؟ سيتم مسح العناصر الحالية إذا لم تكن محفوظة.'
+          : `إنشاء مشروع من قالب «${tpl?.title ?? id}»؟ سيتم مسح العناصر الحالية إذا لم تكن محفوظة.`,
       variant: 'primary',
       action: () => {
-        model.loadFromJSON({
-          project: {
-            name: 'مشروع جديد',
-            unit: 'meter',
-            scale: 50,
-            createdAt: new Date().toISOString().split('T')[0],
-          },
-          layers: model.getLayers(),
-          objects: [],
-          backgroundImage: null,
-        });
+        model.loadFromJSON(buildTemplateProject(id, model.getLayers(), 50));
         setSelectedObjectId(null);
-        engineRef.current?.resetZoom();
+        if (id === 'empty') engineRef.current?.resetZoom();
+        else engineRef.current?.zoomToFit();
       },
     });
   };
+
 
   // تفريغ اللوحة
   const handleClearCanvas = () => {
@@ -1158,7 +1163,7 @@ export default function App() {
         return;
       }
 
-      // 18. فتح مكتبة الرموز (Ctrl+K)
+      // 18. فتح مكتبة الرموز (صار Ctrl+Shift+K؛ Ctrl+K وحده لبحث الأوامر — المرحلة 19)
       if (isCtrlOrMeta && (code === 'KeyK' || key === 'k' || key === 'ن')) {
         e.preventDefault();
         setIsSymbolsCatalogOpen((prev) => !prev);
@@ -1649,6 +1654,33 @@ export default function App() {
         }}
         onGridDensityChange={handleChangeGridDensity}
       />
+
+      {/* بحث الأوامر Ctrl+K والقوالب والجولة التعريفية (المرحلة 19) */}
+      <CommandPalette
+        engine={engineRef.current}
+        actions={[
+          { id: 'new', label: 'مشروع جديد من قالب', keywords: ['new', 'template', 'قالب', 'شقة', 'فيلا', 'محل'], hint: 'Ctrl+N', run: () => setIsTemplatesOpen(true) },
+          { id: 'save', label: 'حفظ المشروع', keywords: ['save'], hint: 'Ctrl+S', run: () => void handleSave() },
+          { id: 'saveas', label: 'حفظ المشروع باسم', keywords: ['save as'], hint: 'Ctrl+Shift+S', run: () => void handleSaveAs() },
+          { id: 'export', label: 'الطباعة وتصدير PDF', keywords: ['print', 'pdf', 'export', 'طباعة', 'تصدير', 'svg', 'ifc', 'png'], hint: 'Ctrl+P', run: () => setIsExportModalOpen(true) },
+          { id: 'boq', label: 'جدول الكميات', keywords: ['boq', 'quantities', 'excel', 'كميات', 'حصر', 'اسعار'], run: () => setIsScheduleBOQOpen(true) },
+          { id: 'mep', label: 'حسابات التمديدات', keywords: ['mep', 'electrical', 'plumbing', 'كهرباء', 'صرف', 'مياه', 'تعارض'], run: () => setIsMepOpen(true) },
+          { id: 'dxf', label: 'تصدير واستيراد AutoCAD DXF', keywords: ['dxf', 'dwg', 'autocad', 'اوتوكاد'], run: () => setIsDxfModalOpen(true) },
+          { id: 'layers', label: 'الطبقات', keywords: ['layers', 'طبقة'], run: () => setIsLayersOpen(true) },
+          { id: 'symbols', label: 'مكتبة الرموز', keywords: ['symbols', 'library', 'رموز', 'فرش'], run: () => setIsSymbolsCatalogOpen(true) },
+          { id: 'blocks', label: 'مكتبة الكتل', keywords: ['blocks', 'كتل'], run: () => setIsBlocksOpen(true) },
+          { id: 'background', label: 'استيراد صورة مخطط', keywords: ['image', 'background', 'صورة', 'خلفية'], run: () => setIsBackgroundModalOpen(true) },
+          { id: 'ai', label: 'المساعد الهندسي الذكي', keywords: ['ai', 'assistant', 'مساعد', 'ذكاء'], run: () => setIsAiAssistantModalOpen(true) },
+          { id: 'settings', label: 'إعدادات التطبيق والحفظ', keywords: ['settings', 'اعدادات'], run: () => setIsSettingsOpen(true) },
+          { id: 'help', label: 'دليل الاختصارات والمساعدة', keywords: ['help', 'shortcuts', 'مساعده'], run: () => setIsHelpOpen(true) },
+          { id: 'theme', label: 'تبديل السمة الداكنة/الفاتحة', keywords: ['theme', 'dark', 'light', 'سمة', 'فاتح', 'داكن'], run: handleToggleTheme },
+          { id: 'lang', label: getLang() === 'en' ? 'التبديل إلى العربية' : 'Switch to English', keywords: ['language', 'english', 'arabic', 'لغة', 'انجليزي', 'عربي'], run: () => void setLang(getLang() === 'en' ? 'ar' : 'en') },
+          { id: 'wall-lengths', label: 'إظهار / إخفاء أطوال الجدران', keywords: ['lengths'], run: handleToggleWallLengths },
+          { id: 'tour', label: 'الجولة التعريفية', keywords: ['tour', 'onboarding', 'جوله', 'شرح'], run: () => window.dispatchEvent(new Event('cad:start-tour')) },
+        ] satisfies PaletteAction[]}
+      />
+      <TemplatesModal isOpen={isTemplatesOpen} onClose={() => setIsTemplatesOpen(false)} onChoose={createFromTemplate} />
+      <OnboardingTour />
 
       <ConfirmModal
         isOpen={confirmDialog.isOpen}

@@ -42,3 +42,64 @@ test('light theme recolours the interface panels, not only the canvas', async ({
   const panel = page.locator('.bg-neutral-900').first();
   await expect.poll(async () => lum(await panel.evaluate((el) => getComputedStyle(el).backgroundColor)), { timeout: 3000 }).toBeGreaterThan(200);
 });
+
+test('Ctrl+K palette: Arabic search with hamza folding runs commands and opens windows', async ({ page }) => {
+  await openFresh(page);
+  await page.keyboard.press('Control+k');
+  await expect(page.getByTestId('command-palette')).toBeVisible();
+  // «اطوال» بدون همزة تجد «إظهار / إخفاء أطوال الجدران»، و«كميات» تجد جدول الكميات
+  await page.getByTestId('palette-input').fill('كميات');
+  await expect(page.getByTestId('palette-results').locator('button').first()).toContainText('جدول الكميات');
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('command-palette')).toBeHidden();
+  await expect(page.getByRole('heading', { name: 'جدول الكميات', level: 3 })).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  // اسم إنجليزي مختصر لأمر رسم: rect يبدأ أمر المستطيل في شريط الأوامر
+  await page.locator('body').click({ position: { x: 5, y: 5 } }).catch(() => {});
+  await page.keyboard.press('Control+k');
+  await page.getByTestId('palette-input').fill('rect');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('form[data-tour="command-bar"]')).toContainText('مستطيل');
+  await page.keyboard.press('Escape');
+
+  // عند فتحه دون كتابة تظهر «المستخدمة مؤخراً»
+  await page.keyboard.press('Control+k');
+  await expect(page.getByTestId('palette-results')).toContainText('المستخدمة مؤخراً');
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('command-palette')).toBeHidden();
+
+  // مكتبة الرموز احتفظت باختصار: Ctrl+Shift+K
+  await page.keyboard.press('Control+Shift+k');
+  await expect(page.getByPlaceholder('بحث عن رمز...')).toBeVisible();
+});
+
+test('new project from the villa template is ready for quantities', async ({ page }) => {
+  await openFresh(page);
+  await page.getByRole('button', { name: /مشروع\s*جديد/ }).first().click();
+  await expect(page.getByTestId('templates-modal')).toBeVisible();
+  await page.getByTestId('template-villa').click();
+  await page.getByRole('button', { name: 'تأكيد' }).click();
+  await page.keyboard.press('Control+s');
+  const read = () => page.evaluate(() => JSON.parse(localStorage.getItem('cad_project_proj_default') || '{}').objects || []);
+  await expect.poll(async () => (await read()).filter((o: any) => o.type === 'room').length).toBe(9);
+  const objs = await read();
+  expect(objs.filter((o: any) => o.type === 'room')).toHaveLength(9);
+  expect(objs.filter((o: any) => o.type === 'wall' && o.wallKind === 'fence')).toHaveLength(4);
+  await page.locator('[data-tour="boq"]').click();
+  await expect(page.getByText('بناء السور').first()).toBeVisible();
+  await expect(page.getByText(/بلا بطاقة/)).toHaveCount(0);
+});
+
+test('onboarding tour walks through the steps and remembers completion', async ({ page }) => {
+  await openFresh(page);
+  // في المتصفح الآلي لا تبدأ تلقائياً؛ تُفتح من نافذة المساعدة
+  await expect(page.getByTestId('onboarding-tour')).toHaveCount(0);
+  await page.evaluate(() => window.dispatchEvent(new Event('cad:start-tour')));
+  await expect(page.getByTestId('tour-title')).toHaveText('أهلاً بك في مخططاتي');
+  for (let i = 0; i < 6; i++) await page.getByTestId('tour-next').click();
+  await expect(page.getByTestId('tour-title')).toContainText('Ctrl+K');
+  await page.getByTestId('tour-next').click();
+  await expect(page.getByTestId('onboarding-tour')).toHaveCount(0);
+  expect(await page.evaluate(() => localStorage.getItem('cad_tour_done'))).toBe('1');
+});
