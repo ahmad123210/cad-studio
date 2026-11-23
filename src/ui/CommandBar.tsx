@@ -159,6 +159,7 @@ export const CommandBar: React.FC<CommandBarProps> = ({ engine, currentTool, hid
 
   return (
     <form
+      data-tour="command-bar"
       onSubmit={submit}
       className="absolute bottom-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-[var(--cad-panel-bg)]/95 border border-[var(--cad-border)] rounded-xl shadow-lg px-2.5 py-1.5 backdrop-blur-md text-xs"
       dir="rtl"

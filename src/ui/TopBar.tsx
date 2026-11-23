@@ -81,6 +81,12 @@ export const TopBar: React.FC<TopBarProps> = ({
   const meta = model.getMeta();
   const [isEditingName, setIsEditingName] = useState(false);
   const [uiLang, setUiLang] = useState<UiLang>(getLang());
+  // تتبع تغيّر اللغة من مصادر أخرى (بحث الأوامر Ctrl+K)
+  React.useEffect(() => {
+    const sync = () => setUiLang(getLang());
+    window.addEventListener('cad:lang', sync);
+    return () => window.removeEventListener('cad:lang', sync);
+  }, []);
   const [projectName, setProjectName] = useState(meta.name);
   const [showSaveMenu, setShowSaveMenu] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -326,6 +332,7 @@ export const TopBar: React.FC<TopBarProps> = ({
 
         {onOpenScheduleBOQ && (
           <button
+            data-tour="boq"
             onClick={onOpenScheduleBOQ}
             className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-md bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-xs transition-colors font-medium"
             title="جدول الرموز وحصر الكميات التلقائي (Automatic Legend & BOQ)"

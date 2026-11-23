@@ -125,7 +125,7 @@ export const ProjectSummary: React.FC<PanelContext> = (ctx) => {
   const bg = model.getBackgroundImage();
 
   return (
-    <aside className="w-72 bg-neutral-900 border-r border-neutral-800 flex flex-col text-neutral-200 select-none z-10 overflow-y-auto">
+    <aside data-tour="properties" className="w-72 bg-neutral-900 border-r border-neutral-800 flex flex-col text-neutral-200 select-none z-10 overflow-y-auto">
       <div className="p-4 flex flex-col gap-4">
         <div className="pb-3 border-b border-neutral-800 flex items-center justify-between">
           <div>

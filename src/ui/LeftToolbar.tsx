@@ -165,7 +165,7 @@ export const LeftToolbar: React.FC<LeftToolbarProps> = ({
   }, [showSelectMenu]);
 
   return (
-    <aside className="w-16 bg-neutral-900 border-l border-neutral-800 flex flex-col items-center py-2.5 justify-between z-10 shadow-lg select-none overflow-y-auto">
+    <aside data-tour="tools" className="w-16 bg-neutral-900 border-l border-neutral-800 flex flex-col items-center py-2.5 justify-between z-10 shadow-lg select-none overflow-y-auto">
       {/* أدوات الرسم والقياس (المرحلة 1 و 2 و 3) */}
       <div className="flex flex-col items-center gap-1.5 w-full px-2">
         <div className="text-[10px] text-neutral-400 font-bold uppercase tracking-wider mb-0.5">

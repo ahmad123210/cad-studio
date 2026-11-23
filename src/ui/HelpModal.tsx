@@ -255,7 +255,17 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
         </div>
 
         {/* تذييل */}
-        <div className="px-5 py-3 border-t border-neutral-800 bg-neutral-950/80 flex justify-end">
+        <div className="px-5 py-3 border-t border-neutral-800 bg-neutral-950/80 flex justify-end gap-2">
+          <button
+            onClick={() => {
+              onClose();
+              window.dispatchEvent(new Event('cad:start-tour'));
+            }}
+            className="px-4 py-1.5 border border-neutral-700 hover:bg-neutral-800 text-neutral-300 rounded-lg text-xs font-semibold transition-colors"
+            data-testid="help-start-tour"
+          >
+            الجولة التعريفية
+          </button>
           <button
             onClick={onClose}
             className="px-4 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold transition-colors"
