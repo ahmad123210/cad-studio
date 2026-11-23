@@ -10,6 +10,7 @@
  * 6. تصدير صور عالية الدقة (300 DPI PNG/JPEG).
  */
 
+import { localizeCsv } from '../i18n/workbook.ts';
 import { jsPDF } from 'jspdf';
 import { ProjectModel } from '../model/project.ts';
 import { CadEngine } from './renderer.ts';
@@ -275,7 +276,7 @@ export class ExportEngine {
         csv += [++n, esc(l.name), esc(l.unit), l.qty, prices[l.key] ?? '', t ?? '', esc(l.note || '')].join(',') + '\n';
       }
     }
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const blob = new Blob([localizeCsv(csv)], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;

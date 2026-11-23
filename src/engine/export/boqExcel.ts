@@ -1,3 +1,4 @@
+import { localizeWorkbook } from '../../i18n/workbook.ts';
 /**
  * @file boqExcel.ts
  * @description تصدير جدول الكميات إلى Excel (.xlsx) مع بقاء المعادلات:
@@ -210,6 +211,7 @@ export async function buildBoqWorkbook(report: QuantityReport, prices: Record<st
 
 export async function downloadBoqExcel(report: QuantityReport, prices: Record<string, number>, projectName: string): Promise<void> {
   const wb = await buildBoqWorkbook(report, prices, projectName);
+  localizeWorkbook(wb);
   const buf = await wb.xlsx.writeBuffer();
   const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   const url = URL.createObjectURL(blob);

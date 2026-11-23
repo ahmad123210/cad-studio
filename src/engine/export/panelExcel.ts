@@ -1,3 +1,4 @@
+import { localizeWorkbook } from '../../i18n/workbook.ts';
 /**
  * @file panelExcel.ts
  * @description تصدير جدول لوحة التوزيع إلى Excel (يُحمَّل كسولاً): الدوائر مع الحمل والتيار والقاطع والكابل
@@ -70,6 +71,7 @@ export async function buildPanelWorkbook(model: ProjectModel): Promise<ExcelJS.W
 
 export async function downloadPanelExcel(model: ProjectModel): Promise<void> {
   const wb = await buildPanelWorkbook(model);
+  localizeWorkbook(wb);
   const buf = await wb.xlsx.writeBuffer();
   const url = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
   const a = document.createElement('a');
