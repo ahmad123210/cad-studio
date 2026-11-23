@@ -411,6 +411,17 @@ export default function App() {
   const [isBlocksOpen, setIsBlocksOpen] = useState(false);
   const [isMepOpen, setIsMepOpen] = useState(false);
   const [isTemplatesOpen, setIsTemplatesOpen] = useState(false);
+  // آخر الملفات (نسخة ويندوز): تُحدّث عند فتح نافذة القوالب وعند تغيّر القائمة
+  const [recentFiles, setRecentFiles] = useState<Array<{ path: string; name: string; exists: boolean }>>([]);
+  useEffect(() => {
+    const api = window.electronAPI;
+    if (!api?.getRecentFiles) return;
+    const refresh = () => {
+      api.getRecentFiles?.().then(setRecentFiles).catch(() => {});
+    };
+    refresh();
+    return api.onRecentChanged?.(refresh);
+  }, [isTemplatesOpen]);
   // تغيير لغة الواجهة: إعادة رسم اللوحة لتُترجم نصوص Canvas (المرحلة 19)
   useEffect(() => {
     const rerender = () => engineRef.current?.render();
@@ -1676,10 +1687,25 @@ export default function App() {
           { id: 'theme', label: 'تبديل السمة الداكنة/الفاتحة', keywords: ['theme', 'dark', 'light', 'سمة', 'فاتح', 'داكن'], run: handleToggleTheme },
           { id: 'lang', label: getLang() === 'en' ? 'التبديل إلى العربية' : 'Switch to English', keywords: ['language', 'english', 'arabic', 'لغة', 'انجليزي', 'عربي'], run: () => void setLang(getLang() === 'en' ? 'ar' : 'en') },
           { id: 'wall-lengths', label: 'إظهار / إخفاء أطوال الجدران', keywords: ['lengths'], run: handleToggleWallLengths },
+          ...recentFiles
+            .filter((f) => f.exists)
+            .map((f) => ({ id: `recent:${f.path}`, label: `فتح ملف حديث: ${f.name}`, keywords: ['recent', 'open', 'حديث', 'فتح', f.path], run: () => void window.electronAPI?.openRecentFile?.(f.path) })),
+          ...(window.electronAPI?.checkForUpdates
+            ? [{ id: 'update', label: 'التحقق من التحديثات', keywords: ['update', 'تحديث', 'اصدار'], run: () => void window.electronAPI?.checkForUpdates?.() }]
+            : []),
           { id: 'tour', label: 'الجولة التعريفية', keywords: ['tour', 'onboarding', 'جوله', 'شرح'], run: () => window.dispatchEvent(new Event('cad:start-tour')) },
         ] satisfies PaletteAction[]}
       />
-      <TemplatesModal isOpen={isTemplatesOpen} onClose={() => setIsTemplatesOpen(false)} onChoose={createFromTemplate} />
+      <TemplatesModal
+        isOpen={isTemplatesOpen}
+        onClose={() => setIsTemplatesOpen(false)}
+        onChoose={createFromTemplate}
+        recentFiles={recentFiles}
+        onOpenRecent={(p) => {
+          setIsTemplatesOpen(false);
+          void window.electronAPI?.openRecentFile?.(p);
+        }}
+      />
       <OnboardingTour />
 
       <ConfirmModal

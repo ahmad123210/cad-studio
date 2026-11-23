@@ -296,7 +296,7 @@ export const TopBar: React.FC<TopBarProps> = ({
         <input
           ref={fileInputRef}
           type="file"
-          accept=".json,application/json"
+          accept=".json,.cadproj,.cad,application/json"
           onChange={handleImportJSON}
           className="hidden"
         />

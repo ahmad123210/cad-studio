@@ -41,6 +41,13 @@ export interface ElectronAPI {
   getVersion: () => Promise<string>;
   onMenuAction: (callback: (action: string) => void) => () => void;
   onFileOpened: (callback: (data: { filePath: string; content: string }) => void) => () => void;
+  // الملفات الأخيرة ولغة القوائم والتحديث (المرحلة 19) — اختيارية لتوافق النسخ الأقدم
+  getRecentFiles?: () => Promise<Array<{ path: string; name: string; exists: boolean }>>;
+  openRecentFile?: (filePath: string) => Promise<void>;
+  clearRecentFiles?: () => Promise<void>;
+  onRecentChanged?: (callback: () => void) => () => void;
+  setUiLang?: (lang: 'ar' | 'en') => void;
+  checkForUpdates?: () => Promise<void>;
 }
 
 declare global {

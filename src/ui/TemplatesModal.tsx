@@ -4,13 +4,16 @@
  */
 
 import React from 'react';
-import { X, LayoutTemplate } from 'lucide-react';
+import { X, LayoutTemplate, FileClock } from 'lucide-react';
 import { PROJECT_TEMPLATES, templatePreview, type ProjectTemplate } from '../model/templates.ts';
 
 interface Props {
   isOpen: boolean;
   onClose: () => void;
   onChoose: (id: ProjectTemplate['id']) => void;
+  /** آخر الملفات (نسخة سطح المكتب فقط) */
+  recentFiles?: Array<{ path: string; name: string; exists: boolean }>;
+  onOpenRecent?: (path: string) => void;
 }
 
 const Preview: React.FC<{ id: ProjectTemplate['id'] }> = ({ id }) => {
@@ -41,7 +44,7 @@ const Preview: React.FC<{ id: ProjectTemplate['id'] }> = ({ id }) => {
   );
 };
 
-export const TemplatesModal: React.FC<Props> = ({ isOpen, onClose, onChoose }) => {
+export const TemplatesModal: React.FC<Props> = ({ isOpen, onClose, onChoose, recentFiles, onOpenRecent }) => {
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onMouseDown={onClose} data-testid="templates-modal">
@@ -73,6 +76,32 @@ export const TemplatesModal: React.FC<Props> = ({ isOpen, onClose, onChoose }) =
             </button>
           ))}
         </div>
+        {recentFiles && recentFiles.length > 0 && onOpenRecent && (
+          <div className="px-5 pb-3" data-testid="recent-files">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-neutral-300 mb-2">
+              <FileClock size={14} className="text-amber-400" />
+              أو افتح ملفاً حديثاً
+            </div>
+            <div className="grid grid-cols-2 gap-1.5">
+              {recentFiles.slice(0, 6).map((f) => (
+                <button
+                  key={f.path}
+                  disabled={!f.exists}
+                  onClick={() => onOpenRecent(f.path)}
+                  title={f.path}
+                  className="text-right px-3 py-2 rounded-lg border border-neutral-800 bg-neutral-950 hover:border-amber-500/60 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <div className="text-xs text-neutral-100 truncate" data-no-i18n>
+                    {f.name}
+                  </div>
+                  <div className="text-[10px] text-neutral-500 truncate font-mono" dir="ltr" data-no-i18n>
+                    {f.path}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="px-5 pb-4 text-[11px] text-neutral-500">
           القوالب جاهزة لكشف الغرف وحصر الكميات مباشرة، وكل عناصرها قابلة للتعديل. يُستبدل المشروع الحالي بعد التأكيد.
         </div>

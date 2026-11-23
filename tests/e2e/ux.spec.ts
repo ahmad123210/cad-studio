@@ -103,3 +103,54 @@ test('onboarding tour walks through the steps and remembers completion', async (
   await expect(page.getByTestId('onboarding-tour')).toHaveCount(0);
   expect(await page.evaluate(() => localStorage.getItem('cad_tour_done'))).toBe('1');
 });
+
+test('desktop: recent files appear in New project and Ctrl+K, and open through the bridge', async ({ page }) => {
+  await page.addInitScript(() => {
+    const noop = () => () => {};
+    (window as any).__opened = [];
+    (window as any).electronAPI = {
+      isElectron: true,
+      platform: 'win32',
+      saveProject: async () => ({ canceled: true }),
+      saveProjectDirect: async () => ({ success: true }),
+      getLastSavedPath: async () => null,
+      setUnsavedChanges: () => {},
+      onTriggerSaveAndClose: noop,
+      responseSaveAndClose: () => {},
+      closeWindow: async () => {},
+      saveFile: async () => ({ canceled: true }),
+      openFile: async () => ({ canceled: true }),
+      getVersion: async () => '1.2.0',
+      onMenuAction: noop,
+      onFileOpened: noop,
+      getRecentFiles: async () => [
+        { path: 'D:\\plans\\villa.cadproj', name: 'villa.cadproj', exists: true },
+        { path: 'D:\\old\\gone.cadproj', name: 'gone.cadproj', exists: false },
+      ],
+      openRecentFile: async (p: string) => (window as any).__opened.push(p),
+      onRecentChanged: noop,
+      setUiLang: (l: string) => ((window as any).__lang = l),
+      checkForUpdates: async () => {},
+    };
+  });
+  await openFresh(page);
+  expect(await page.evaluate(() => (window as any).__lang)).toBe('ar');
+  await page.getByRole('button', { name: /مشروع\s*جديد/ }).first().click();
+  const recent = page.getByTestId('recent-files');
+  await expect(recent).toContainText('villa.cadproj');
+  await expect(recent.getByRole('button', { name: /gone\.cadproj/ })).toBeDisabled();
+  await recent.getByRole('button', { name: /villa\.cadproj/ }).click();
+  await expect(page.getByTestId('templates-modal')).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).__opened)).toEqual(['D:\\plans\\villa.cadproj']);
+
+  await page.keyboard.press('Control+k');
+  await page.getByTestId('palette-input').fill('villa');
+  await expect(page.getByTestId('palette-results')).toContainText('فتح ملف حديث: villa.cadproj');
+  await page.getByTestId('palette-input').fill('تحديث');
+  await expect(page.getByTestId('palette-results')).toContainText('التحقق من التحديثات');
+  await page.keyboard.press('Escape');
+
+  // تبديل اللغة يُبلغ العملية الرئيسية لتترجم القوائم والحوارات الأصلية
+  await page.getByTestId('lang-toggle').click();
+  await expect.poll(() => page.evaluate(() => (window as any).__lang)).toBe('en');
+});

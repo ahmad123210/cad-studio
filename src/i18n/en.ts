@@ -1,6 +1,8 @@
 // قاموس الواجهة الإنجليزية (المرحلة 19) — مفاتيحه النصوص العربية كما تظهر في الواجهة بعد ضمّ المسافات.
 // {0} {1} … مواضع القيم المتغيرة في النصوص المركّبة.
 export const EN_EXACT: Record<string, string> = {
+  "أو افتح ملفاً حديثاً": "Or open a recent file",
+  "التحقق من التحديثات": "Check for updates",
   "أوامر الرسم والتحرير": "Drawing & editing commands",
   "النوافذ والإجراءات": "Windows & actions",
   "المستخدمة مؤخراً": "Recently used",
@@ -1758,6 +1760,7 @@ export const EN_EXACT: Record<string, string> = {
 };
 
 export const EN_PATTERNS: Array<[string, string]> = [
+  ["فتح ملف حديث: {0}", "Open recent file: {0}"],
   ["إنشاء مشروع من قالب «{0}»؟ سيتم مسح العناصر الحالية إذا لم تكن محفوظة.", "Create a project from the \"{0}\" template? Current items will be cleared if not saved."],
   ["جدول الكميات - مشروع {0}", "Bill of quantities - project {0}"],
   ["{0} م ({1}°)", "{0} m ({1}°)"],

@@ -19,11 +19,15 @@
     "target": [
       {
         "target": "portable",
-        "arch": ["x64"]
+        "arch": [
+          "x64"
+        ]
       },
       {
         "target": "nsis",
-        "arch": ["x64"]
+        "arch": [
+          "x64"
+        ]
       }
     ],
     "icon": "build/icon.ico",
@@ -35,11 +39,28 @@
     "createDesktopShortcut": true,
     "createStartMenuShortcut": true,
     "shortcutName": "CAD Studio",
-    "artifactName": "${productName}-Setup-${version}.exe"
+    "artifactName": "CAD-Studio-Setup-${version}.${ext}",
+    "perMachine": false
   },
   "portable": {
-    "artifactName": "${productName}-${version}-portable.exe"
+    "artifactName": "CAD-Studio-${version}-portable.${ext}"
   },
-  "publish": null,
-  "compression": "normal"
+  "publish": [
+    {
+      "provider": "github",
+      "owner": "ahmad123210",
+      "repo": "cad-studio",
+      "releaseType": "release"
+    }
+  ],
+  "compression": "normal",
+  "fileAssociations": [
+    {
+      "ext": "cadproj",
+      "name": "CAD Studio Project",
+      "description": "CAD Studio Project",
+      "role": "Editor",
+      "icon": "build/icon.ico"
+    }
+  ]
 }
