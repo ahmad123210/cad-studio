@@ -1,3 +1,5 @@
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { writeFileSync } from 'node:fs';
 import { exportIfc, ifcGuid, ifcStr } from '../../src/engine/export/ifcExport.ts';
@@ -26,7 +28,7 @@ describe('IFC export', () => {
     let seed = 1;
     const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
     const ifc = exportIfc(sampleObjects, { projectName: 'Test', pixelsPerMeter: 100, quantities: DEFAULT_QUANTITY_SETTINGS, rand, timestamp: '2026-01-01T00:00:00' });
-    writeFileSync('/tmp/cad_test.ifc', ifc);
+    writeFileSync(join(tmpdir(), 'cad_test.ifc'), ifc);
     const count = (t: string) => (ifc.match(new RegExp(`=${t}\\(`, 'g')) || []).length;
     expect(ifc.startsWith('ISO-10303-21;')).toBe(true);
     expect(count('IFCWALLSTANDARDCASE')).toBe(5);

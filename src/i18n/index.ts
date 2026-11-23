@@ -248,6 +248,7 @@ function applyDocument(): void {
 /** يُستدعى مرة عند الإقلاع: يطبق اللغة المحفوظة. */
 export async function initI18n(): Promise<void> {
   (window as unknown as { __i18nMissing: Set<string> }).__i18nMissing = missing;
+  window.electronAPI?.setUiLang?.(lang);
   if (lang !== 'en') return;
   applyDocument();
   await loadDictionary();
@@ -280,5 +281,6 @@ export async function setLang(next: UiLang): Promise<void> {
     applyDocument();
   }
   cache.clear();
+  window.electronAPI?.setUiLang?.(lang);
   window.dispatchEvent(new CustomEvent('cad:lang', { detail: lang }));
 }

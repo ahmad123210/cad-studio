@@ -50,6 +50,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('menu-action', handler);
   },
 
+  // الملفات الأخيرة (المرحلة 19)
+  getRecentFiles: () => ipcRenderer.invoke('recent:list'),
+  openRecentFile: (filePath) => ipcRenderer.invoke('recent:open', filePath),
+  clearRecentFiles: () => ipcRenderer.invoke('recent:clear'),
+  onRecentChanged: (callback) => {
+    const handler = () => callback();
+    ipcRenderer.on('recent-changed', handler);
+    return () => ipcRenderer.removeListener('recent-changed', handler);
+  },
+
+  // لغة القوائم والحوارات الأصلية تتبع لغة الواجهة
+  setUiLang: (lang) => ipcRenderer.send('ui:set-lang', lang),
+
+  // التحقق من التحديثات يدوياً
+  checkForUpdates: () => ipcRenderer.invoke('update:check'),
+
   // استقبال حدث فتح ملف من الخارج
   onFileOpened: (callback) => {
     const handler = (_event, data) => callback(data);
