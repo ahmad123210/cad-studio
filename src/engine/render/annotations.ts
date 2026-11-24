@@ -162,13 +162,7 @@ export function renderTextObjectImpl(this: CadEngine, textObj: TextObject, isLoc
       if (e.evt && e.evt.button !== 0 && !e.evt.touches) return;
       if (this.toolMode !== 'select' || this.selectionSubMode === 'box') return;
       e.cancelBubble = true;
-      if (!this.selectedObjectIds.includes(textObj.id)) {
-        if (e.evt?.shiftKey || this.selectionSubMode === 'multi') {
-          this.toggleObjectSelection(textObj.id);
-        } else {
-          this.selectObject(textObj.id);
-        }
-      }
+      this.pickObjectDown(textObj.id, e.evt as MouseEvent);
     });
 
     group.on('click tap', (e) => {
@@ -176,11 +170,7 @@ export function renderTextObjectImpl(this: CadEngine, textObj: TextObject, isLoc
       if (this.toolMode !== 'select' || this.selectionSubMode === 'box') return;
       e.cancelBubble = true;
       if (this.wasGroupDragged) return;
-      if (e.evt.shiftKey || this.selectionSubMode === 'multi') {
-        this.toggleObjectSelection(textObj.id);
-      } else {
-        this.selectObject(textObj.id);
-      }
+      this.pickObjectClick(textObj.id, e.evt as MouseEvent);
     });
 
     group.on('dblclick dbltap', (e) => {
@@ -391,13 +381,7 @@ export function renderDimensionImpl(this: CadEngine, dim: DimensionObject, isLoc
       if (e.evt && e.evt.button !== 0 && !e.evt.touches) return;
       if (this.toolMode !== 'select' || this.selectionSubMode === 'box') return;
       e.cancelBubble = true;
-      if (!this.selectedObjectIds.includes(dim.id)) {
-        if (e.evt?.shiftKey || this.selectionSubMode === 'multi') {
-          this.toggleObjectSelection(dim.id);
-        } else {
-          this.selectObject(dim.id);
-        }
-      }
+      this.pickObjectDown(dim.id, e.evt as MouseEvent);
     });
 
     group.on('click tap', (e) => {
@@ -407,11 +391,7 @@ export function renderDimensionImpl(this: CadEngine, dim: DimensionObject, isLoc
       if (this.wasGroupDragged) {
         return;
       }
-      if (e.evt.shiftKey || this.selectionSubMode === 'multi') {
-        this.toggleObjectSelection(dim.id);
-      } else {
-        this.selectObject(dim.id);
-      }
+      this.pickObjectClick(dim.id, e.evt as MouseEvent);
     });
 
     group.on('dragstart', () => {

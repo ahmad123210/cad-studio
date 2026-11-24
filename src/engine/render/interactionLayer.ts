@@ -179,7 +179,7 @@ export function renderInteractionLayerImpl(this: CadEngine, shiftKey: boolean = 
       this.renderFloatingBadge(
         (sScreen.x + eScreen.x) / 2,
         (sScreen.y + eScreen.y) / 2 - 20,
-        `📐 ${lengthStr} (${polar.angleDegrees.toFixed(1)}°)`,
+        `${lengthStr} (${polar.angleDegrees.toFixed(1)}°)`,
         '#0f172a',
         '#38bdf8'
       );
@@ -228,7 +228,10 @@ export function renderInteractionLayerImpl(this: CadEngine, shiftKey: boolean = 
       const dxStr = GridUtils.formatLength(dx, pixelsPerMeter, meta.unit);
       const dyStr = GridUtils.formatLength(dy, pixelsPerMeter, meta.unit);
 
-      const label = `📏 ${lengthStr} (∠ ${polar.angleDegrees.toFixed(1)}° | ΔX: ${dxStr}, ΔY: ${dyStr})`;
+      // أداة القياس: الطول والزاوية فقط (المرحلة 20)
+      void dxStr;
+      void dyStr;
+      const label = `${lengthStr}  ∠ ${polar.angleDegrees.toFixed(1)}°`;
 
       this.renderFloatingBadge(
         (sScreen.x + eScreen.x) / 2,
@@ -428,7 +431,7 @@ export function renderInteractionLayerImpl(this: CadEngine, shiftKey: boolean = 
       const widthStr = GridUtils.formatLength(width, pixelsPerMeter, meta.unit);
       const label = `${this.toolMode === 'door' ? '🚪 باب' : '🪟 نافذة'} (${widthStr})`;
 
-      this.renderFloatingBadge(
+      if (this.showDrawingLabels) this.renderFloatingBadge(
         (sP1.x + sP2.x) / 2,
         (sP1.y + sP2.y) / 2 - screenThickness - 18,
         label,
@@ -482,7 +485,7 @@ export function renderInteractionLayerImpl(this: CadEngine, shiftKey: boolean = 
         this.interactionLayer.add(ghostGroup);
 
         const badgeLabel = symDef.name;
-        this.renderFloatingBadge(
+        if (this.showDrawingLabels) this.renderFloatingBadge(
           sPos.x,
           sPos.y - 24,
           badgeLabel,
@@ -530,7 +533,7 @@ export function renderInteractionLayerImpl(this: CadEngine, shiftKey: boolean = 
           ? `التقط بالرمز: ${symbolSnap.symbol.symbolKind} (انقر للبدء)`
           : `⚡ انقر لتحديد بداية مسار ${meta?.name || 'MEP'}`;
 
-        this.renderFloatingBadge(
+        if (this.showDrawingLabels) this.renderFloatingBadge(
           curScreen.x,
           curScreen.y - 22,
           hintText,
@@ -634,8 +637,10 @@ export function renderInteractionLayerImpl(this: CadEngine, shiftKey: boolean = 
         const totalPx = calculateRoutePixelLength(allPointsWithCur);
         const totalMeters = (totalPx / pixelsPerMeter).toFixed(2);
 
-        let badgeText = `⚡ ${meta?.name || 'مسار'}: ${segmentMeters}م (المجموع: ${totalMeters}م)`;
-        if (symbolSnap) {
+        let badgeText = this.showDrawingLabels
+          ? `⚡ ${meta?.name || 'مسار'}: ${segmentMeters}م (المجموع: ${totalMeters}م)`
+          : `${segmentMeters} م (المجموع ${totalMeters} م)`;
+        if (symbolSnap && this.showDrawingLabels) {
           badgeText = `متصل بـ: ${symbolSnap.symbol.symbolKind} | المجموع: ${totalMeters}م`;
         }
 
@@ -674,7 +679,7 @@ export function renderInteractionLayerImpl(this: CadEngine, shiftKey: boolean = 
       const distW = Math.abs(this.currentSnapResult.point.x - this.marqueeStartPoint.x) / pixelsPerMeter;
       const distH = Math.abs(this.currentSnapResult.point.y - this.marqueeStartPoint.y) / pixelsPerMeter;
 
-      this.renderFloatingBadge(
+      if (this.showDrawingLabels) this.renderFloatingBadge(
         x + w / 2,
         y - 18,
         `🔲 مربع تحديد: ${distW.toFixed(2)}م × ${distH.toFixed(2)}م`,
@@ -758,7 +763,8 @@ export function renderAngleGuidelineImpl(this: CadEngine, originWorld: Point, ta
     const perpX = -dirY * 20;
     const perpY = dirX * 20;
 
-    this.renderFloatingBadge(
+    // شارة الزاوية المنفصلة تكرر ما في شارة الطول؛ تظهر فقط مع «التسميات أثناء الرسم» (المرحلة 20)
+    if (this.showDrawingLabels) this.renderFloatingBadge(
       midX + perpX,
       midY + perpY,
       badgeText,

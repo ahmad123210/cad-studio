@@ -54,9 +54,12 @@ registerCommand('insertblock', {
   click(engine, c, p) {
     const b = findBlock(engine, String(c.data?.blockId || ''));
     if (!b) return true;
+    const placed = placeBlock(b, p, Number(c.data?.rotation || 0));
+    // الفرش في الكتل يذهب لطبقة الأثاث (تُنشأ إن لزم — المرحلة 20)
+    if (placed.some((o) => o.layerId === 'furn')) engine.model.ensureLayer('furn');
     const layerIds = new Set(engine.model.getLayers().map((l) => l.id));
     const active = engine.model.getActiveLayerId();
-    const objs = placeBlock(b, p, Number(c.data?.rotation || 0)).map((o) => (layerIds.has(o.layerId) ? o : { ...o, layerId: active }));
+    const objs = placed.map((o) => (layerIds.has(o.layerId) ? o : { ...o, layerId: active }));
     engine.model.addObjects(objs, `إدراج كتلة: ${b.name}`);
     engine.selectObjects(objs.map((o) => o.id));
     return false;

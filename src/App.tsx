@@ -29,6 +29,8 @@ import { TemplatesModal } from './ui/TemplatesModal.tsx';
 import { OnboardingTour } from './ui/OnboardingTour.tsx';
 import { buildTemplateProject, PROJECT_TEMPLATES, type ProjectTemplate } from './model/templates.ts';
 import { getLang, setLang } from './i18n/index.ts';
+import { saveFileAs, pickSaveHandle, writeToHandle, safeFileName, FILE_TYPES } from './utils/saveFile.ts';
+import { IS_SECONDARY_WINDOW, WINDOW_PROJECT_ID } from './model/windowContext.ts';
 import { LayersPanel } from './ui/LayersPanel.tsx';
 import { StatusBar } from './ui/StatusBar.tsx';
 import { HelpModal } from './ui/HelpModal.tsx';
@@ -119,6 +121,14 @@ function cloneObjectsWithOffset(source: ProjectObject[], offset: number): Projec
     }
     return clone as ProjectObject;
   });
+  // النسخة الملصقة مجموعة جديدة لا تختلط بمجموعة الأصل (المرحلة 20)
+  const groupMap = new Map<string, string>();
+  for (const c of clones) {
+    if (c.groupId) {
+      if (!groupMap.has(c.groupId)) groupMap.set(c.groupId, `grp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`);
+      c.groupId = groupMap.get(c.groupId)!;
+    }
+  }
   for (const c of clones) {
     if (c.type === 'door' || c.type === 'window') {
       const mapped = idMap.get((c as DoorObject | WindowObject).wallId);
@@ -373,6 +383,12 @@ export default function App() {
   const canvasContainerRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<CadEngine | null>(null);
   const [model] = useState<ProjectModel>(() => {
+    // نافذة إضافية (ويندوز متعدد النوافذ): مشروع فارغ مستقل لا يمس جلسة النافذة الرئيسية
+    if (IS_SECONDARY_WINDOW) {
+      const extra = new ProjectModel(WINDOW_PROJECT_ID, 'مشروع جديد');
+      extra.rememberAsActive = false;
+      return extra;
+    }
     const proj = new ProjectModel('proj_default', 'مخطط فيلا سكنية 01');
     const loaded = proj.loadFromLocalStorage();
     // إصلاح: سابقاً كانت العناصر النموذجية تُعاد إضافتها لأي مشروع محفوظ فارغ (بعد تفريغ اللوحة ثم إعادة التحميل)
@@ -411,6 +427,9 @@ export default function App() {
   const [isBlocksOpen, setIsBlocksOpen] = useState(false);
   const [isMepOpen, setIsMepOpen] = useState(false);
   const [isTemplatesOpen, setIsTemplatesOpen] = useState(false);
+  // نسخة المتصفح: ملف المشروع الذي اختاره المستخدم بـ «حفظ باسم» (File System Access) — المرحلة 20
+  const webFileHandleRef = useRef<FileSystemFileHandle | null>(null);
+  const [webFileName, setWebFileName] = useState<string | null>(null);
   // آخر الملفات (نسخة ويندوز): تُحدّث عند فتح نافذة القوالب وعند تغيّر القائمة
   const [recentFiles, setRecentFiles] = useState<Array<{ path: string; name: string; exists: boolean }>>([]);
   useEffect(() => {
@@ -452,7 +471,15 @@ export default function App() {
   const [isAiAssistantModalOpen, setIsAiAssistantModalOpen] = useState(false);
   const [isAboutModalOpen, setIsAboutModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [lastSavedPath, setLastSavedPath] = useState<string | null>(() => getLastUsedSettings().lastSavedPath);
+  const [lastSavedPath, setLastSavedPathState] = useState<string | null>(() => (IS_SECONDARY_WINDOW ? null : getLastUsedSettings().lastSavedPath));
+  useEffect(() => {
+    window.electronAPI?.setCurrentFilePath?.(lastSavedPath);
+  }, [lastSavedPath]);
+  // «آخر مسار حفظ» في الإعدادات المشتركة يخص النافذة الرئيسية فقط (المرحلة 20)
+  const setLastSavedPath = useCallback((p: string | null) => {
+    setLastSavedPathState(p);
+    if (!IS_SECONDARY_WINDOW) updateLastUsedSettings({ lastSavedPath: p });
+  }, []);
   const [autoSaveEnabled, setAutoSaveEnabled] = useState<boolean>(() => getLastUsedSettings().autoSaveEnabled);
   const [autoSaveIntervalMinutes, setAutoSaveIntervalMinutes] = useState<number>(() => getLastUsedSettings().autoSaveIntervalMinutes || 5);
   const [measuredPixelDistance, setMeasuredPixelDistance] = useState<number | null>(null);
@@ -629,7 +656,7 @@ export default function App() {
     });
 
     // إن كانت نسخة IndexedDB أحدث من localStorage (أو المشروع أكبر من حدّه) نحمّلها بعد الإقلاع
-    model.loadNewerFromIndexedDB().then((loaded) => {
+    (IS_SECONDARY_WINDOW ? Promise.resolve(false) : model.loadNewerFromIndexedDB()).then((loaded) => {
       if (loaded) {
         setActiveSheetId(model.getActiveSheetId());
         setIsSaved(true);
@@ -830,7 +857,6 @@ export default function App() {
         });
         if (!res.canceled && res.success && res.filePath) {
           setLastSavedPath(res.filePath);
-          updateLastUsedSettings({ lastSavedPath: res.filePath });
           setIsSaved(true);
           window.electronAPI.setUnsavedChanges(false);
           model.saveToLocalStorage();
@@ -839,19 +865,24 @@ export default function App() {
         console.error('Error in handleSaveAs:', err);
       }
     } else {
-      // بيئة المتصفح: تصدير ملف وحفظ في الذاكرة المحلية
+      // بيئة المتصفح: نافذة حفظ النظام لاختيار المكان (Chrome/Edge)، وإلا تنزيل الملف (المرحلة 20)
       model.saveToLocalStorage();
       setIsSaved(true);
       const jsonStr = JSON.stringify(projectData, null, 2);
-      const blob = new Blob([jsonStr], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${projectData.project.name || 'project'}_${new Date().toISOString().split('T')[0]}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      const name = `${safeFileName(projectData.project.name)}.cadproj`;
+      const handle = await pickSaveHandle(name, FILE_TYPES.project);
+      if (handle === null) return;
+      if (handle !== 'unsupported') {
+        try {
+          await writeToHandle(handle, jsonStr);
+          webFileHandleRef.current = handle;
+          setWebFileName(handle.name);
+          return;
+        } catch (err) {
+          console.warn('Writing project file failed, downloading instead:', err);
+        }
+      }
+      void saveFileAs(jsonStr, `${safeFileName(projectData.project.name)}_${new Date().toISOString().split('T')[0]}.json`, FILE_TYPES.json);
     }
   }, [model, lastSavedPath]);
 
@@ -877,6 +908,16 @@ export default function App() {
     } else {
       // المتصفح: IndexedDB (بلا حد حجم) + localStorage + نسخة احتياطية
       const res = await model.saveLocal({ forceBackup: true });
+      // وإن سبق «حفظ باسم» إلى ملف على الجهاز نكتب فيه أيضاً (المرحلة 20)
+      if (webFileHandleRef.current) {
+        try {
+          await writeToHandle(webFileHandleRef.current, JSON.stringify(projectData, null, 2));
+        } catch (err) {
+          console.warn('Writing to the chosen project file failed:', err);
+          webFileHandleRef.current = null;
+          setWebFileName(null);
+        }
+      }
       if (res.ok) {
         setIsSaved(true);
       } else {
@@ -951,8 +992,7 @@ export default function App() {
           success = Boolean(res.success && !res.canceled);
           if (success && res.filePath) {
             setLastSavedPath(res.filePath);
-            updateLastUsedSettings({ lastSavedPath: res.filePath });
-          }
+            }
         }
         if (success) {
           setIsSaved(true);
@@ -975,7 +1015,6 @@ export default function App() {
       window.electronAPI.getLastSavedPath().then((p) => {
         if (p) {
           setLastSavedPath(p);
-          updateLastUsedSettings({ lastSavedPath: p });
         }
       }).catch(() => {});
     }
@@ -1087,9 +1126,17 @@ export default function App() {
       }
 
       // 6. مشروع جديد (Ctrl+N / Cmd+N)
-      if (isCtrlOrMeta && (code === 'KeyN' || key === 'n' || key === 'ى')) {
+      if (isCtrlOrMeta && !e.shiftKey && (code === 'KeyN' || key === 'n' || key === 'ى')) {
         e.preventDefault();
         handleNewProject();
+        return;
+      }
+
+      // 6-ب. تجميع / فك تجميع (Ctrl+G / Ctrl+Shift+G) — المرحلة 20
+      if (isCtrlOrMeta && (code === 'KeyG' || key === 'g' || key === 'ل')) {
+        e.preventDefault();
+        if (e.shiftKey) engineRef.current?.ungroupSelection();
+        else engineRef.current?.groupSelection();
         return;
       }
 
@@ -1297,7 +1344,6 @@ export default function App() {
         if (warnings.length) alert('فُتح الملف مع ملاحظات:\n' + warnings.join('\n'));
         if (filePath) {
           setLastSavedPath(filePath);
-          updateLastUsedSettings({ lastSavedPath: filePath });
         }
         setIsSaved(true);
         window.electronAPI?.setUnsavedChanges(false);
@@ -1336,7 +1382,7 @@ export default function App() {
         isPropertiesPanelVisible={isPropertiesPanelVisible}
         onTogglePropertiesPanel={() => setIsPropertiesPanelVisible((prev) => !prev)}
         isSaved={isSaved}
-        lastSavedPath={lastSavedPath}
+        lastSavedPath={window.electronAPI ? lastSavedPath : webFileName}
         autoSaveActive={autoSaveEnabled}
         theme={theme}
         onToggleTheme={handleToggleTheme}
@@ -1653,7 +1699,7 @@ export default function App() {
           const current = getLastUsedSettings();
           setAutoSaveEnabled(current.autoSaveEnabled);
           setAutoSaveIntervalMinutes(current.autoSaveIntervalMinutes);
-          setLastSavedPath(current.lastSavedPath);
+          if (!IS_SECONDARY_WINDOW) setLastSavedPathState(current.lastSavedPath);
         }}
         model={model}
         onSaveAs={handleSaveAs}
@@ -1690,6 +1736,9 @@ export default function App() {
           ...recentFiles
             .filter((f) => f.exists)
             .map((f) => ({ id: `recent:${f.path}`, label: `فتح ملف حديث: ${f.name}`, keywords: ['recent', 'open', 'حديث', 'فتح', f.path], run: () => void window.electronAPI?.openRecentFile?.(f.path) })),
+          ...(window.electronAPI?.newWindow
+            ? [{ id: 'new-window', label: 'نافذة جديدة', keywords: ['window', 'new window', 'نافذه', 'ملف اخر'], hint: 'Ctrl+Shift+N', run: () => void window.electronAPI?.newWindow?.() }]
+            : []),
           ...(window.electronAPI?.checkForUpdates
             ? [{ id: 'update', label: 'التحقق من التحديثات', keywords: ['update', 'تحديث', 'اصدار'], run: () => void window.electronAPI?.checkForUpdates?.() }]
             : []),
@@ -1739,6 +1788,9 @@ export default function App() {
           }}
           onOpenBlocks={() => setIsBlocksOpen(true)}
           canPasteProps={Boolean(propsClipboard)}
+          onGroup={() => engineRef.current?.groupSelection()}
+          onUngroup={() => engineRef.current?.ungroupSelection()}
+          canUngroup={selectedObjectIds.some((id) => model.getObjectById(id)?.groupId)}
           onCopyProps={() => {
             const src = contextMenu.targetObjectId ? model.getObjectById(contextMenu.targetObjectId) : undefined;
             if (src) setPropsClipboard(copyProps(src));

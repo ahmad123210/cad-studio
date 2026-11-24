@@ -36,3 +36,20 @@ jobs:
           name: playwright-report
           path: playwright-report
           retention-days: 7
+
+  # نسخة سطح المكتب: تعدد النوافذ وفتح الملفات في Electron الحقيقي (المرحلة 20)
+  electron:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies (with Electron binary)
+        run: npm ci
+      - name: Build
+        run: npx vite build
+      - name: Multi-window test
+        run: xvfb-run -a node tests/electron/multiwindow.mjs

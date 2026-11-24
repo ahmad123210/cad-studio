@@ -7,6 +7,7 @@ import { localizeWorkbook } from '../../i18n/workbook.ts';
  * يُحمَّل كسولاً (exceljs كبيرة) عند الضغط على زر Excel فقط.
  */
 
+import { saveFileAs, safeFileName, FILE_TYPES } from '../../utils/saveFile.ts';
 import ExcelJS from 'exceljs';
 import type { QuantityReport, BoqSection } from '../../model/quantities.ts';
 import { BOQ_SECTION_TITLES, lineTotal } from '../../model/quantities.ts';
@@ -67,9 +68,53 @@ const styleRow = (r: ExcelJS.Row, cols: number, fill?: ExcelJS.Fill, bold = fals
   }
 };
 
+const ROOMS_SHEET = 'الغرف';
+const OPENINGS_SHEET = 'الأبواب والشبابيك';
+const FENCE_SHEET = 'السور';
+const INPUT_FILL: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFBEB' } };
+
+/**
+ * روابط كميات جدول الكميات بأوراق التفصيل (المرحلة 20): تعديل ارتفاع السور أو نوع أرضية غرفة
+ * في ورقتها يحدّث الكمية والإجمالي في «جدول الكميات». يُربط البند فقط إن طابقت المعادلة الكمية المحسوبة.
+ */
+export function boqQuantityLinks(report: QuantityReport): Map<string, string> {
+  const links = new Map<string, { formula: string; value: number }>();
+  const q = (name: string) => `'${name}'!`;
+  if (report.rooms.length) {
+    const last = 4 + report.rooms.length;
+    const types = new Set(report.rooms.map((r) => r.floorType).filter(Boolean) as string[]);
+    for (const t of types) {
+      const value = report.rooms.filter((r) => r.floorType === t).reduce((a, r) => a + r.area, 0);
+      links.set(`floor:${t}`, { formula: `SUMIF(${q(ROOMS_SHEET)}B5:B${last},"${t.replace(/"/g, '""')}",${q(ROOMS_SHEET)}C5:C${last})`, value });
+    }
+    links.set('plaster:interior', { formula: `${q(ROOMS_SHEET)}E${last + 1}`, value: report.rooms.reduce((a, r) => a + r.wallFinish, 0) });
+  }
+  report.openings.forEach((o, i) => {
+    const key = o.kind === 'door' ? `door:${o.widthCm}x${o.heightCm}` : `window:${o.widthCm}x${o.heightCm}@${o.sillCm ?? 0}`;
+    links.set(key, { formula: `${q(OPENINGS_SHEET)}F${5 + i}`, value: o.count });
+  });
+  if (report.fence.length) {
+    const tot = 5 + report.fence.length;
+    links.set('fence:length', { formula: `${q(FENCE_SHEET)}B${tot}`, value: report.fence.reduce((a, f) => a + f.length, 0) });
+    links.set('fence:masonry', { formula: `${q(FENCE_SHEET)}H${tot}`, value: report.fence.reduce((a, f) => a + f.volume, 0) });
+    const faces = report.fence.reduce((a, f) => a + 2 * f.netFace, 0);
+    links.set('fence:plaster', { formula: `${q(FENCE_SHEET)}G${tot}`, value: faces });
+    links.set('fence:paint', { formula: `${q(FENCE_SHEET)}G${tot}`, value: faces });
+  }
+  const out = new Map<string, string>();
+  for (const l of report.lines) {
+    const k = links.get(l.key);
+    if (k && Math.abs(k.value - l.qty) <= 0.011 + Math.abs(l.qty) * 1e-6) out.set(l.key, k.formula);
+  }
+  return out;
+}
+
 export async function buildBoqWorkbook(report: QuantityReport, prices: Record<string, number>, projectName: string): Promise<ExcelJS.Workbook> {
+  const links = boqQuantityLinks(report);
   const wb = new ExcelJS.Workbook();
   wb.creator = 'CAD Studio';
+  // Excel يعيد حساب كل المعادلات عند الفتح (لا يعتمد على النتائج المخزنة)
+  wb.calcProperties.fullCalcOnLoad = true;
   wb.created = new Date();
   const date = new Date().toLocaleDateString('ar-EG');
 
@@ -94,16 +139,22 @@ export async function buildBoqWorkbook(report: QuantityReport, prices: Record<st
       r.getCell(1).value = ++n;
       r.getCell(2).value = l.name;
       r.getCell(3).value = l.unit;
-      r.getCell(4).value = l.qty;
+      const link = links.get(l.key);
+      // الكمية مرتبطة بورقة التفصيل إن وُجدت (معادلة)، وإلا رقم محسوب من المخطط
+      r.getCell(4).value = link ? ({ formula: link, result: l.qty } as ExcelJS.CellFormulaValue) : l.qty;
       r.getCell(4).numFmt = l.unit === 'عدد' ? INT : l.unit === 'م³' ? NUM3 : NUM;
       const p = prices[l.key];
       if (typeof p === 'number') r.getCell(5).value = p;
       r.getCell(5).numFmt = NUM;
+      // خلية السعر مدخل المستخدم: لون مميز وتحقق من أنها رقم موجب
+      r.getCell(5).dataValidation = { type: 'decimal', operator: 'greaterThanOrEqual', formulae: [0], allowBlank: true, showErrorMessage: true, errorTitle: 'سعر غير صالح', error: 'أدخل رقماً موجباً' };
+      r.getCell(5).protection = { locked: false };
       const t = lineTotal(l, prices);
       r.getCell(6).value = (t === null ? { formula: `IF(E${row}="","",D${row}*E${row})` } : { formula: `IF(E${row}="","",D${row}*E${row})`, result: t }) as ExcelJS.CellFormulaValue;
       r.getCell(6).numFmt = NUM;
       r.getCell(7).value = l.note || '';
       styleRow(r, 7);
+      r.getCell(5).fill = INPUT_FILL;
       r.getCell(2).alignment = { horizontal: 'right', vertical: 'middle', wrapText: true };
       row++;
     }
@@ -130,10 +181,19 @@ export async function buildBoqWorkbook(report: QuantityReport, prices: Record<st
   g.getCell(6).numFmt = NUM;
   styleRow(g, 7, { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD1FAE5' } }, true);
   g.height = 22;
+  // تكرار صف العناوين عند الطباعة، وملاحظة توضيحية
+  ws.pageSetup.printTitlesRow = '4:4';
+  const noteRow = row + 2;
+  ws.mergeCells(noteRow, 1, noteRow, 7);
+  const note = ws.getCell(noteRow, 1);
+  note.value = 'أدخل أسعار الوحدات في الخلايا الملونة؛ الإجماليات معادلات تُحسب تلقائياً. الكميات المرتبطة بأوراق الغرف والأبواب والسور تتحدث عند تعديلها هناك.';
+  note.font = { italic: true, size: 9, color: { argb: 'FF6B7280' }, name: 'Arial' };
+  note.alignment = { wrapText: true, horizontal: 'right' };
+  ws.getRow(noteRow).height = 30;
 
   // ─── 2) الغرف ───
   if (report.rooms.length) {
-    const wr = newSheet(wb, 'الغرف', [26, 20, 14, 14, 18]);
+    const wr = newSheet(wb, ROOMS_SHEET, [26, 20, 14, 14, 18]);
     title(wr, 'جدول الغرف', projectName, 5);
     header(wr, 4, ['الغرفة', 'الأرضية', 'المساحة (م²)', 'المحيط (م)', 'لياسة الجدران (م²)']);
     let r = 5;
@@ -153,7 +213,7 @@ export async function buildBoqWorkbook(report: QuantityReport, prices: Record<st
 
   // ─── 3) الأبواب والشبابيك ───
   if (report.openings.length) {
-    const wo = newSheet(wb, 'الأبواب والشبابيك', [9, 10, 13, 13, 12, 9, 16, 16]);
+    const wo = newSheet(wb, OPENINGS_SHEET, [9, 10, 13, 13, 12, 9, 16, 16]);
     title(wo, 'جدول الأبواب والشبابيك', projectName, 8);
     header(wo, 4, ['الرمز', 'النوع', 'العرض (سم)', 'الارتفاع (سم)', 'الجلسة (سم)', 'العدد', 'مساحة الواحد (م²)', 'المساحة الكلية (م²)']);
     let r = 5;
@@ -178,7 +238,7 @@ export async function buildBoqWorkbook(report: QuantityReport, prices: Record<st
 
   // ─── 4) السور ───
   if (report.fence.length) {
-    const wf = newSheet(wb, 'السور', [14, 11, 11, 11, 13, 15, 18, 13]);
+    const wf = newSheet(wb, FENCE_SHEET, [14, 11, 11, 11, 13, 15, 18, 13]);
     title(wf, 'السور الخارجي — تفصيلي', `${projectName} · عدّل الارتفاع أو الطول وستتحدث الكميات تلقائياً`, 8);
     header(wf, 4, ['الضلع', 'الطول (م)', 'الارتفاع (م)', 'السماكة (م)', 'البوابات (م²)', 'صافي الوجه (م²)', 'لياسة/دهان وجهين (م²)', 'البناء (م³)']);
     let r = 5;
@@ -213,13 +273,6 @@ export async function downloadBoqExcel(report: QuantityReport, prices: Record<st
   const wb = await buildBoqWorkbook(report, prices, projectName);
   localizeWorkbook(wb);
   const buf = await wb.xlsx.writeBuffer();
-  const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `BOQ_${projectName.replace(/\s+/g, '_')}.xlsx`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  const blob = new Blob([buf], { type: FILE_TYPES.xlsx.mime });
+  await saveFileAs(blob, `BOQ_${safeFileName(projectName).replace(/\s+/g, '_')}.xlsx`, FILE_TYPES.xlsx);
 }

@@ -97,6 +97,9 @@ export const COMMANDS: CadCommand[] = [
     remappable: true,
     run: (engine) => (engine.detectRooms() > 0 ? null : 'لم تُعثر على غرف مغلقة جديدة'),
   },
+  // تجميع العناصر كعنصر واحد وفكّها (المرحلة 20) — الاختصار Ctrl+G / Ctrl+Shift+G
+  { id: 'group', label: 'تجميع كعنصر واحد', aliases: ['group', 'g', 'تجميع', 'دمج كعنصر'], defaultCodes: [], remappable: true, run: (engine) => engine.groupSelection() },
+  { id: 'ungroup', label: 'فك التجميع', aliases: ['ungroup', 'ug', 'فك', 'فك التجميع', 'تفريق'], defaultCodes: [], remappable: true, run: (engine) => engine.ungroupSelection() },
   { id: 'alignLeft', label: 'محاذاة لليسار', aliases: ['alignleft', 'all', 'محاذاة يسار'], defaultCodes: [], remappable: true, run: align('left') },
   { id: 'alignRight', label: 'محاذاة لليمين', aliases: ['alignright', 'alr', 'محاذاة يمين'], defaultCodes: [], remappable: true, run: align('right') },
   { id: 'alignTop', label: 'محاذاة للأعلى', aliases: ['aligntop', 'alt', 'محاذاة أعلى', 'محاذاة اعلى'], defaultCodes: [], remappable: true, run: align('top') },

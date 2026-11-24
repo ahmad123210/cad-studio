@@ -48,6 +48,9 @@ export interface ElectronAPI {
   onRecentChanged?: (callback: () => void) => () => void;
   setUiLang?: (lang: 'ar' | 'en') => void;
   checkForUpdates?: () => Promise<void>;
+  // تعدد النوافذ (المرحلة 20)
+  newWindow?: () => Promise<void>;
+  setCurrentFilePath?: (filePath: string | null) => void;
 }
 
 declare global {

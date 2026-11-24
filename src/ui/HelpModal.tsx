@@ -144,7 +144,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
                 <span className="text-[10px] text-amber-400 font-medium">ملحقة بالـ PDF تلقائياً</span>
               </div>
               <div className="col-span-2 flex items-center justify-between bg-neutral-950/40 p-2 rounded border border-neutral-800">
-                <span>تصدير Excel (CSV) وصور فائقة الدقة</span>
+                <span>تصدير Excel بمعادلات وصور فائقة الدقة</span>
                 <span className="text-[10px] text-neutral-300">دعم 300 DPI + ترميز UTF-8 باللغة العربية</span>
               </div>
             </div>

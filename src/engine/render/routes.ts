@@ -204,13 +204,7 @@ export function renderRouteImpl(this: CadEngine, route: RouteObject, isLocked: b
       if (e.evt && e.evt.button !== 0 && !e.evt.touches) return;
       if (this.toolMode !== 'select' || this.selectionSubMode === 'box') return;
       e.cancelBubble = true;
-      if (!this.selectedObjectIds.includes(route.id)) {
-        if (e.evt?.shiftKey || this.selectionSubMode === 'multi') {
-          this.toggleObjectSelection(route.id);
-        } else {
-          this.selectObject(route.id);
-        }
-      }
+      this.pickObjectDown(route.id, e.evt as MouseEvent);
     });
 
     group.on('click tap', (e) => {
@@ -220,11 +214,7 @@ export function renderRouteImpl(this: CadEngine, route: RouteObject, isLocked: b
       if (this.wasGroupDragged) {
         return;
       }
-      if (e.evt.shiftKey || this.selectionSubMode === 'multi') {
-        this.toggleObjectSelection(route.id);
-      } else {
-        this.selectObject(route.id);
-      }
+      this.pickObjectClick(route.id, e.evt as MouseEvent);
     });
 
     group.on('dragstart', () => {

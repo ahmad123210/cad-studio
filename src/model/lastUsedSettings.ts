@@ -27,6 +27,8 @@ export interface LastUsedSettings {
   textFontWeight: 'normal' | 'bold'; // سماكة خط الملاحظة
   textAlign: 'right' | 'center' | 'left'; // محاذاة النص
   showWallLengths: boolean; // إظهار أو إخفاء أطوال الجدران بالمخطط
+  /** تسميات إضافية أثناء الرسم (اسم الرمز، نوع الفتحة، تلميحات المسار، الزاوية المنفصلة) — مخفية افتراضياً (المرحلة 20) */
+  showDrawingLabels: boolean;
   symbolScale: number; // مقياس حجم الرموز الموحد (افتراضياً 1.0)
   symbolColor: string; // اللون الافتراضي للرمز (افتراضياً '#f59e0b')
   symbolKindSettings: Record<string, { scale: number; color?: string; rotation?: number }>; // الاحتفاظ بآخر حجم وتنسيق لكل نوع رمز
@@ -54,6 +56,7 @@ const DEFAULT_SETTINGS: LastUsedSettings = {
   textFontWeight: 'normal',
   textAlign: 'right',
   showWallLengths: true,
+  showDrawingLabels: false,
   symbolScale: 1.0,
   symbolColor: '#f59e0b',
   symbolKindSettings: {},
@@ -127,6 +130,7 @@ export function getLastUsedSettings(): LastUsedSettings {
         showWallLengths: typeof parsed.showWallLengths === 'boolean'
           ? parsed.showWallLengths
           : DEFAULT_SETTINGS.showWallLengths,
+        showDrawingLabels: parsed.showDrawingLabels === true,
         symbolScale: typeof parsed.symbolScale === 'number' && parsed.symbolScale > 0
           ? parsed.symbolScale
           : DEFAULT_SETTINGS.symbolScale,

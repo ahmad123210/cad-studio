@@ -3,6 +3,7 @@
  * @description تصدير المخطط كملف SVG متجه (يُفتح في المتصفحات وInkscape وIllustrator ويُطبع بأي دقة):
  * نفس رسم لوحة الرسم بعد تحويله إلى خطوط ودوائر ونصوص، بمقاس حقيقي بالمليمتر حسب مقياس الطباعة.
  */
+import { saveFileAs, FILE_TYPES } from '../../utils/saveFile.ts';
 import type { VPrim } from './vectorize.ts';
 
 const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -61,12 +62,8 @@ export function buildSvg(prims: VPrim[], bounds: { minX: number; minY: number; w
 }
 
 export function downloadText(content: string, fileName: string, mime: string): void {
-  const url = URL.createObjectURL(new Blob([content], { type: mime }));
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = fileName;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  // نافذة الحفظ لاختيار المكان (المرحلة 20)
+  const ext = fileName.split('.').pop()?.toLowerCase() || '';
+  const type = ext === 'svg' ? FILE_TYPES.svg : ext === 'ifc' ? FILE_TYPES.ifc : { description: ext.toUpperCase() || 'File', mime: mime.split(';')[0], extensions: [ext || 'txt'] };
+  void saveFileAs(new Blob([content], { type: mime }), fileName, type);
 }

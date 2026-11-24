@@ -261,7 +261,7 @@ export function bindEventsImpl(this: CadEngine): void {
           id: 'sym_' + Math.random().toString(36).substring(2, 9),
           type: 'symbol',
           symbolKind: this.activeSymbolKind,
-          layerId: symbolDef?.defaultLayerId || this.model.getActiveLayerId(),
+          layerId: this.model.layerForSymbol(this.activeSymbolKind, symbolDef?.defaultLayerId, symbolDef?.category),
           x: finalPoint.x,
           y: finalPoint.y,
           rotation: wallSnap ? rotation : (lastSymConfig.rotation || 0),
@@ -550,11 +550,9 @@ export function bindEventsImpl(this: CadEngine): void {
           }
 
           if (nearbyObjId) {
-            if (e.evt?.shiftKey || this.selectionSubMode === 'multi') {
-              this.toggleObjectSelection(nearbyObjId);
-            } else {
-              this.selectObject(nearbyObjId);
-            }
+            const ev = e.evt as MouseEvent;
+            this.pickObjectDown(nearbyObjId, ev);
+            this.pickObjectClick(nearbyObjId, ev);
           } else {
             this.isMarqueeSelecting = true;
             this.marqueeStartPoint = worldRaw;
@@ -686,17 +684,18 @@ export function bindEventsImpl(this: CadEngine): void {
         if (maxX - minX > 5 || maxY - minY > 5) {
           const box: BoxRect = { minX, minY, maxX, maxY };
           const all = this.model.getObjects();
-          const selected = all.filter((obj) => isObjectInBox(obj, box, all));
-          if (this.selectionSubMode === 'multi' || this.isShiftKeyPressed) {
-            const combined = Array.from(
-              new Set([...this.selectedObjectIds, ...selected.map((o) => o.id)])
-            );
-            this.selectObjects(combined);
+          // المجموعات تُحدَّد كاملة إن دخل أحد أعضائها المربع (المرحلة 20)
+          const selected = this.expandToGroups(all.filter((obj) => isObjectInBox(obj, box, all)).map((o) => o.id));
+          const evm = ev as MouseEvent | undefined;
+          const additive = this.selectionSubMode === 'multi' || this.isShiftKeyPressed || Boolean(evm?.ctrlKey || evm?.metaKey);
+          if (additive) {
+            this.selectObjects(Array.from(new Set([...this.selectedObjectIds, ...selected])));
           } else {
-            this.selectObjects(selected.map((o) => o.id));
+            this.selectObjects(selected);
           }
         } else {
-          if (this.selectionSubMode !== 'multi' && !this.isShiftKeyPressed && !this.wasGroupDragged) {
+          const evm = ev as MouseEvent | undefined;
+          if (this.selectionSubMode !== 'multi' && !this.isShiftKeyPressed && !(evm?.ctrlKey || evm?.metaKey) && !this.wasGroupDragged) {
             this.selectObject(null);
           }
         }

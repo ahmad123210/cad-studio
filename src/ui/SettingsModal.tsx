@@ -400,6 +400,31 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               {settings.showWallLengths !== false ? 'مُفعّل (ظاهر) ✓' : 'مُعطّل (مخفي)'}
             </button>
           </div>
+
+          {/* 5. التسميات الإضافية أثناء الرسم (المرحلة 20) — مخفية افتراضياً */}
+          <div className="bg-[var(--cad-surface-bg)] border border-[var(--cad-border)] rounded-xl p-4 flex items-center justify-between">
+            <div className="space-y-0.5">
+              <span className="font-bold text-xs flex items-center gap-1.5 text-[var(--cad-text-primary)]">
+                <Ruler size={15} className="text-amber-400" />
+                التسميات المرافقة أثناء الرسم
+              </span>
+              <p className="text-[11px] text-[var(--cad-text-muted)]">
+                اسم الرمز ونوع الفتحة وتلميحات المسار وشارة الزاوية المنفصلة. يبقى الطول والزاوية ظاهرين دائماً.
+              </p>
+            </div>
+            <button
+              type="button"
+              data-testid="toggle-drawing-labels"
+              onClick={() => setSettings(updateLastUsedSettings({ showDrawingLabels: !settings.showDrawingLabels }))}
+              className={`py-1.5 px-3 rounded-lg border text-xs font-semibold transition-colors ${
+                settings.showDrawingLabels
+                  ? 'bg-sky-600/20 text-sky-400 border-sky-500/50'
+                  : 'bg-[var(--cad-panel-bg)] text-[var(--cad-text-muted)] border-[var(--cad-border)] hover:bg-[var(--cad-surface-hover)]'
+              }`}
+            >
+              {settings.showDrawingLabels ? 'مُفعّل (ظاهر) ✓' : 'مُعطّل (مخفي)'}
+            </button>
+          </div>
         </div>
 
         {/* تذييل النافذة */}

@@ -139,18 +139,14 @@ export function renderRoomLabelImpl(this: CadEngine, room: RoomObject, isLocked:
     if (e.evt && (e.evt as MouseEvent).button !== 0 && !(e.evt as TouchEvent).touches) return;
     if (this.toolMode !== 'select' || this.selectionSubMode === 'box') return;
     e.cancelBubble = true;
-    if (!this.selectedObjectIds.includes(room.id)) {
-      if ((e.evt as MouseEvent)?.shiftKey || this.selectionSubMode === 'multi') this.toggleObjectSelection(room.id);
-      else this.selectObject(room.id);
-    }
+    this.pickObjectDown(room.id, e.evt as MouseEvent);
   });
   group.on('click tap', (e) => {
     if (e.evt && (e.evt as MouseEvent).button !== 0 && !(e.evt as TouchEvent).touches) return;
     if (this.toolMode !== 'select' || this.selectionSubMode === 'box') return;
     e.cancelBubble = true;
     if (this.wasGroupDragged) return;
-    if ((e.evt as MouseEvent).shiftKey || this.selectionSubMode === 'multi') this.toggleObjectSelection(room.id);
-    else this.selectObject(room.id);
+    this.pickObjectClick(room.id, e.evt as MouseEvent);
   });
   group.on('dragstart', (e) => {
     e.cancelBubble = true;

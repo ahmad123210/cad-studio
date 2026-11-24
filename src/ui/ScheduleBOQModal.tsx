@@ -7,6 +7,7 @@
  * الحسابات كلها في model/quantities.ts (دالة صرفة مختبرة).
  */
 
+import { saveFileAs, safeFileName, FILE_TYPES } from '../utils/saveFile.ts';
 import { localizeCsv } from '../i18n/workbook.ts';
 import React, { useMemo, useState, useSyncExternalStore } from 'react';
 import { X, Download, Copy, Check, TableProperties, LayoutGrid, AlertTriangle, FileSpreadsheet } from 'lucide-react';
@@ -142,14 +143,7 @@ export const ScheduleBOQModal: React.FC<ScheduleBOQModalProps> = ({ model, isOpe
     }
     if (anyPrice) csv += `,,,,${esc('المجموع')},${grandTotal.toFixed(2)}\n`;
     const blob = new Blob([localizeCsv(csv)], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `BOQ_${projectMeta.name.replace(/\s+/g, '_')}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    void saveFileAs(blob, `BOQ_${safeFileName(projectMeta.name).replace(/\s+/g, '_')}.csv`, FILE_TYPES.csv);
   };
 
   const handleCopyClipboard = async () => {

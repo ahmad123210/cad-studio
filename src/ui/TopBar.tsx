@@ -4,6 +4,7 @@
  * يحتوي على اسم المشروع، أزرار الحفظ، التراجع، الإعادة، وتصدير/استيراد ملفات JSON.
  */
 
+import { saveFileAs, safeFileName, FILE_TYPES } from '../utils/saveFile.ts';
 import React, { useRef, useState } from 'react';
 import {
   Save,
@@ -108,15 +109,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   const handleExportJSON = () => {
     const data = model.toJSON();
     const jsonStr = JSON.stringify(data, null, 2);
-    const blob = new Blob([jsonStr], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${meta.name || 'project'}_${new Date().toISOString().split('T')[0]}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    void saveFileAs(jsonStr, `${safeFileName(meta.name)}_${new Date().toISOString().split('T')[0]}.json`, FILE_TYPES.json);
   };
 
   // استيراد مشروع من ملف JSON

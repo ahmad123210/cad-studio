@@ -387,10 +387,22 @@ export const ExportModal: React.FC<ExportModalProps> = ({
     setTimeout(() => setExportSuccessMsg(null), 4000);
   };
 
+  // جدول الكميات كملف Excel حقيقي بمعادلات وخلايا منسقة (المرحلة 20)
+  const handleExportExcel = async () => {
+    try {
+      await ExportEngine.exportBOQExcel(model);
+      setExportSuccessMsg('تم حفظ جدول الكميات كملف Excel بمعادلات وتنسيق');
+    } catch (err) {
+      setExportSuccessMsg(null);
+      alert('تعذر إنشاء ملف Excel: ' + (err as Error).message);
+    }
+    setTimeout(() => setExportSuccessMsg(null), 4000);
+  };
+
   // تنفيذ تصدير BOQ CSV
   const handleExportCSV = () => {
     ExportEngine.exportBOQCSV(model);
-    setExportSuccessMsg('تم تنزيل جدول حصر الكميات بصيغة Excel (CSV)!');
+    setExportSuccessMsg('تم حفظ جدول الكميات كنص CSV');
     setTimeout(() => setExportSuccessMsg(null), 4000);
   };
 
@@ -594,12 +606,22 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                 </button>
 
                 <button
-                  onClick={handleExportCSV}
-                  className="px-3 py-1.5 bg-emerald-950/70 hover:bg-emerald-900 text-emerald-300 rounded-lg font-medium transition-colors flex items-center gap-1.5 border border-emerald-700/60"
-                  title="تصدير جدول الكميات كملف Excel"
+                  onClick={() => void handleExportExcel()}
+                  data-testid="export-boq-xlsx"
+                  className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg font-medium transition-colors flex items-center gap-1.5 border border-emerald-500/60"
+                  title="جدول الكميات كملف Excel (.xlsx) بمعادلات وخلايا منسقة وأوراق للغرف والفتحات والسور"
                 >
                   <FileSpreadsheet size={14} />
-                  <span>حصر الكميات (CSV)</span>
+                  <span>حصر الكميات (Excel)</span>
+                </button>
+
+                <button
+                  onClick={handleExportCSV}
+                  className="px-3 py-1.5 bg-emerald-950/70 hover:bg-emerald-900 text-emerald-300 rounded-lg font-medium transition-colors flex items-center gap-1.5 border border-emerald-700/60"
+                  title="نص مفصول بفواصل (CSV) — للأنظمة الأخرى؛ لا يحتوي معادلات"
+                >
+                  <FileSpreadsheet size={14} />
+                  <span>CSV نصي</span>
                 </button>
 
                 <button

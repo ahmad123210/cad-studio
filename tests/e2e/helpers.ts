@@ -2,6 +2,10 @@ import { Page, expect } from '@playwright/test';
 
 /** يفتح التطبيق بمشروع العينة الافتراضي (ذاكرة نظيفة) ويعيد دالة تحويل إحداثيات العالم إلى الشاشة */
 export async function openFresh(page: Page, project?: unknown) {
+  // نافذة حفظ النظام (File System Access) تفتح حواراً أصلياً لا يمكن أتمتته: الاختبارات تتبع مسار التنزيل
+  await page.addInitScript(() => {
+    if (!(window as unknown as { __keepSavePicker?: boolean }).__keepSavePicker) Object.defineProperty(window, 'showSaveFilePicker', { value: undefined, configurable: true, writable: true });
+  });
   await page.goto('/');
   await page.evaluate((p) => {
     localStorage.clear();

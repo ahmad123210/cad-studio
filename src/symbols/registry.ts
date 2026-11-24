@@ -48,7 +48,7 @@ export const CATEGORIES_META: Record<SymbolCategory, CategoryMeta> = {
     id: 'furniture',
     name: 'فرش وأجهزة',
     nameEn: 'Furniture & Appliances',
-    defaultLayerId: 'arch',
+    defaultLayerId: 'furn',
     color: '#a855f7',
     iconName: 'Armchair',
   },
