@@ -82,6 +82,10 @@ export interface ContextMenuProps {
   onCopyProps?: () => void;
   onPasteProps?: () => void;
   canPasteProps?: boolean;
+  /** تجميع وفك تجميع (المرحلة 20) */
+  onGroup?: () => void;
+  onUngroup?: () => void;
+  canUngroup?: boolean;
 }
 
 export const ContextMenu: React.FC<ContextMenuProps> = ({
@@ -108,6 +112,9 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
   onCopyProps,
   onPasteProps,
   canPasteProps,
+  onGroup,
+  onUngroup,
+  canUngroup,
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -415,6 +422,36 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
                   ))}
               </div>
             </>
+          )}
+
+          {/* تجميع العناصر في عنصر واحد وفكّها (المرحلة 20) */}
+          {(onGroup || onUngroup) && (selectedCount >= 2 || canUngroup) && (
+            <div className="grid grid-cols-2 gap-0.5 border-t border-neutral-800 pt-1 mt-1">
+              <button
+                data-testid="ctx-group"
+                disabled={selectedCount < 2}
+                onClick={() => {
+                  onGroup?.();
+                  onClose();
+                }}
+                className="flex items-center justify-between gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-neutral-800 text-right cursor-pointer disabled:opacity-35 disabled:cursor-not-allowed"
+              >
+                <span>تجميع كعنصر واحد</span>
+                <kbd className="text-[9px] font-mono text-neutral-500" data-no-i18n>Ctrl+G</kbd>
+              </button>
+              <button
+                data-testid="ctx-ungroup"
+                disabled={!canUngroup}
+                onClick={() => {
+                  onUngroup?.();
+                  onClose();
+                }}
+                className="flex items-center justify-between gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-neutral-800 text-right cursor-pointer disabled:opacity-35 disabled:cursor-not-allowed"
+              >
+                <span>فك التجميع</span>
+                <kbd className="text-[9px] font-mono text-neutral-500" data-no-i18n>Ctrl+Shift+G</kbd>
+              </button>
+            </div>
           )}
 
           {/* نسخ الخصائص ولصقها */}

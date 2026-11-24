@@ -201,7 +201,13 @@ export function cloneTransformed(source: ProjectObject[], spec: TransformSpec): 
     if (upd) Object.assign(clone, upd);
     return clone;
   });
+  // النسخة مجموعة جديدة مستقلة عن الأصل (المرحلة 20)
+  const groupMap = new Map<string, string>();
   for (const c of clones) {
+    if (c.groupId) {
+      if (!groupMap.has(c.groupId)) groupMap.set(c.groupId, `grp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`);
+      c.groupId = groupMap.get(c.groupId)!;
+    }
     if (c.type === 'door' || c.type === 'window') {
       const mapped = idMap.get((c as DoorObject | WindowObject).wallId);
       if (mapped) (c as DoorObject | WindowObject).wallId = mapped;

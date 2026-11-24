@@ -12,7 +12,7 @@
 import { sanitizeQuantitySettings } from './quantitySettings.ts';
 import { sanitizeBlocks } from './blocks.ts';
 import { sanitizeMep } from './electrical.ts';
-import type { ProjectData, ProjectObject, ProjectSheet, Layer, Point, UnitType } from './types.ts';
+import type { ProjectData, ProjectObject, ProjectSheet, Layer, Point, UnitType, SymbolObject } from './types.ts';
 
 export const CURRENT_SCHEMA_VERSION = 2;
 
@@ -178,6 +178,13 @@ export function migrateProjectData(raw: unknown, defaultLayers: Layer[]): { data
     layers = JSON.parse(JSON.stringify(defaultLayers));
     warnings.push('لم تُعثر على طبقات صالحة؛ استُخدمت الطبقات الافتراضية.');
   }
+  // طبقة الأثاث التلقائية (المرحلة 20): تُضاف للمشاريع القديمة بعد المعماري
+  const furnDefault = defaultLayers.find((l) => l.id === 'furn');
+  const addedFurnLayer = Boolean(furnDefault && !layers.some((l) => l.id === 'furn'));
+  if (addedFurnLayer && furnDefault) {
+    const at = layers.findIndex((l) => l.id === 'arch');
+    layers.splice(at === -1 ? layers.length : at + 1, 0, JSON.parse(JSON.stringify(furnDefault)));
+  }
   const layerIds = new Set(layers.map((l) => l.id));
   const fallbackLayer = layerIds.has('arch') ? 'arch' : layers[0].id;
 
@@ -213,6 +220,16 @@ export function migrateProjectData(raw: unknown, defaultLayers: Layer[]): { data
         createdAt: project.createdAt,
       },
     ];
+  }
+  // نقل الفرش والأجهزة من الطبقة المعمارية (موضعها السابق الافتراضي) إلى طبقتها الجديدة
+  if (addedFurnLayer) {
+    const moveFurniture = (list: ProjectObject[]) => {
+      for (const o of list) {
+        if (o.type === 'symbol' && o.layerId === 'arch' && typeof (o as SymbolObject).symbolKind === 'string' && (o as SymbolObject).symbolKind.startsWith('furn_')) o.layerId = 'furn';
+      }
+    };
+    moveFurniture(objects);
+    sheets.forEach((s) => moveFurniture(s.objects));
   }
   const activeSheetId = sheets.some((s) => s.id === src.activeSheetId) ? (src.activeSheetId as string) : sheets[0].id;
 

@@ -70,6 +70,7 @@ import {
 export type { EditCommandKind } from './tools/editCommands.ts';
 import { commitWallWithLengthImpl, finishRouteImpl, finishCalibrationImpl } from './tools/drawingTools.ts';
 import { onGroupDragStartImpl, onGroupDragMoveImpl, onGroupDragEndImpl, selectSimilarImpl } from './interaction/groupDrag.ts';
+import { pickObjectDownImpl, pickObjectClickImpl, groupSelectionImpl, ungroupSelectionImpl, expandGroups } from './interaction/selection.ts';
 import { getDrawingBoundsImpl, exportDrawingImageDataURLImpl, exportVectorPrimsImpl } from './export/exportImage.ts';
 import { bindEventsImpl, processPointerMoveImpl } from './interaction/pointerEvents.ts';
 import { handleKeyDownImpl, handleKeyUpImpl } from './interaction/keyboard.ts';
@@ -161,6 +162,8 @@ export class CadEngine {
   groupDragStartPositions: Map<string, { x: number; y: number }> = new Map();
   isShiftKeyPressed: boolean = false;
   wasGroupDragged: boolean = false;
+  /** عنصر أُضيف للتحديد عند الضغط بـ Ctrl (حتى لا تزيله النقرة نفسها) — المرحلة 20 */
+  pickAddedOnDown: string | null = null;
   isTransformPending: boolean = false;
   isPointerMovePending: boolean = false;
   pendingPointerPos: Point | null = null;
@@ -225,6 +228,10 @@ export class CadEngine {
 
   // إظهار أو إخفاء أطوال الجدران
   showWallLengths: boolean = true;
+  /** التسميات الإضافية أثناء الرسم (المرحلة 20): تُقرأ من الإعدادات مباشرة لتسري فور تغييرها */
+  get showDrawingLabels(): boolean {
+    return getLastUsedSettings().showDrawingLabels === true;
+  }
 
   // حالة التحريك (Pan)
   isPanning: boolean = false;
@@ -469,6 +476,11 @@ export class CadEngine {
     this.showWallLengths = show;
     updateLastUsedSettings({ showWallLengths: show });
     this.render();
+  }
+
+  public setShowDrawingLabels(show: boolean): void {
+    updateLastUsedSettings({ showDrawingLabels: show });
+    this.renderInteractionLayer();
   }
 
   public getShowWallLengths(): boolean {
@@ -829,6 +841,29 @@ export class CadEngine {
   public selectAllInLayer(layerId: string): void {
     const layerObjects = this.model.getObjects().filter((obj) => obj.layerId === layerId);
     this.selectObjects(layerObjects.map((o) => o.id));
+  }
+
+  /** ضغطة على عنصر: Ctrl متعدد، Shift مشابه، Alt عنصر من داخل مجموعة (المرحلة 20) */
+  public pickObjectDown(id: string, evt?: { ctrlKey?: boolean; metaKey?: boolean; shiftKey?: boolean; altKey?: boolean } | null, silent = false): void {
+    return pickObjectDownImpl.call(this, id, evt, silent);
+  }
+
+  public pickObjectClick(id: string, evt?: { ctrlKey?: boolean; metaKey?: boolean; shiftKey?: boolean; altKey?: boolean } | null): void {
+    return pickObjectClickImpl.call(this, id, evt);
+  }
+
+  /** تجميع المحدد في عنصر واحد؛ يعيد رسالة خطأ أو null */
+  public groupSelection(): string | null {
+    return groupSelectionImpl.call(this);
+  }
+
+  public ungroupSelection(): string | null {
+    return ungroupSelectionImpl.call(this);
+  }
+
+  /** توسيع معرّفات لتشمل مجموعاتها (لتحديد المربع) */
+  public expandToGroups(ids: string[]): string[] {
+    return expandGroups(this.model.getObjects(), ids);
   }
 
   public selectSimilar(targetId?: string): void {

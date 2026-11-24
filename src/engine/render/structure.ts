@@ -20,18 +20,14 @@ function bindSelectDrag(engine: CadEngine, group: Konva.Group, id: string, isLoc
     if (e.evt && (e.evt as MouseEvent).button !== 0 && !(e.evt as TouchEvent).touches) return;
     if (engine.toolMode !== 'select' || engine.selectionSubMode === 'box') return;
     e.cancelBubble = true;
-    if (!engine.selectedObjectIds.includes(id)) {
-      if ((e.evt as MouseEvent)?.shiftKey || engine.selectionSubMode === 'multi') engine.toggleObjectSelection(id);
-      else engine.selectObject(id);
-    }
+    engine.pickObjectDown(id, e.evt as MouseEvent);
   });
   group.on('click tap', (e) => {
     if (e.evt && (e.evt as MouseEvent).button !== 0 && !(e.evt as TouchEvent).touches) return;
     if (engine.toolMode !== 'select' || engine.selectionSubMode === 'box') return;
     e.cancelBubble = true;
     if (engine.wasGroupDragged) return;
-    if ((e.evt as MouseEvent).shiftKey || engine.selectionSubMode === 'multi') engine.toggleObjectSelection(id);
-    else engine.selectObject(id);
+    engine.pickObjectClick(id, e.evt as MouseEvent);
   });
   const sx = group.x();
   const sy = group.y();

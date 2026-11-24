@@ -63,6 +63,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // لغة القوائم والحوارات الأصلية تتبع لغة الواجهة
   setUiLang: (lang) => ipcRenderer.send('ui:set-lang', lang),
 
+  // تعدد النوافذ (المرحلة 20)
+  newWindow: () => ipcRenderer.invoke('window:new'),
+  setCurrentFilePath: (filePath) => ipcRenderer.send('window:set-path', filePath || null),
+
   // التحقق من التحديثات يدوياً
   checkForUpdates: () => ipcRenderer.invoke('update:check'),
 

@@ -51,25 +51,14 @@ export function renderLineworkImpl(this: CadEngine, line: LineObject, isLocked: 
     if (e.evt && (e.evt as MouseEvent).button !== 0 && !(e.evt as TouchEvent).touches) return;
     if (this.toolMode !== 'select' || this.selectionSubMode === 'box') return;
     e.cancelBubble = true;
-    if (!this.selectedObjectIds.includes(line.id)) {
-      if ((e.evt as MouseEvent)?.shiftKey || this.selectionSubMode === 'multi') {
-        this.toggleObjectSelection(line.id);
-      } else {
-        // مثل الجدران: نحدّث التحديد دون إعادة البناء حتى لا تُهدم العقدة قبل بدء السحب
-        this.selectedObjectId = line.id;
-        this.selectedObjectIds = [line.id];
-        this.callbacks.onSelectObject(line.id);
-        this.callbacks.onSelectObjects?.([line.id]);
-      }
-    }
+    this.pickObjectDown(line.id, e.evt as MouseEvent, true);
   });
   group.on('click tap', (e) => {
     if (e.evt && (e.evt as MouseEvent).button !== 0 && !(e.evt as TouchEvent).touches) return;
     if (this.toolMode !== 'select' || this.selectionSubMode === 'box') return;
     e.cancelBubble = true;
     if (this.wasGroupDragged) return;
-    if ((e.evt as MouseEvent)?.shiftKey || this.selectionSubMode === 'multi') this.toggleObjectSelection(line.id);
-    else this.selectObject(line.id);
+    this.pickObjectClick(line.id, e.evt as MouseEvent);
   });
   group.on('dragstart', () => {
     if (!this.selectedObjectIds.includes(line.id)) {

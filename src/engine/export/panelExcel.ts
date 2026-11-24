@@ -4,6 +4,7 @@ import { localizeWorkbook } from '../../i18n/workbook.ts';
  * @description تصدير جدول لوحة التوزيع إلى Excel (يُحمَّل كسولاً): الدوائر مع الحمل والتيار والقاطع والكابل
  * والطول وهبوط الجهد، والتيار بمعادلة من الحمل، ومجاميع الأطوار بمعادلات SUMIF.
  */
+import { saveFileAs, safeFileName, FILE_TYPES } from '../../utils/saveFile.ts';
 import ExcelJS from 'exceljs';
 import type { ProjectModel } from '../../model/project.ts';
 import { computeElectrical, CIRCUIT_KIND_NAMES } from '../../model/electrical.ts';
@@ -13,6 +14,7 @@ export async function buildPanelWorkbook(model: ProjectModel): Promise<ExcelJS.W
   const rep = computeElectrical(model.getObjects(), mep, model.getMeta().scale || 50);
   const s = mep.settings;
   const wb = new ExcelJS.Workbook();
+  wb.calcProperties.fullCalcOnLoad = true;
   const ws = wb.addWorksheet('جدول اللوحة', { views: [{ rightToLeft: true, state: 'frozen', ySplit: 5 }] });
   ws.columns = [12, 14, 9, 9, 12, 11, 11, 12, 13, 13, 26].map((width) => ({ width }));
   ws.mergeCells(1, 1, 1, 11);
@@ -73,12 +75,6 @@ export async function downloadPanelExcel(model: ProjectModel): Promise<void> {
   const wb = await buildPanelWorkbook(model);
   localizeWorkbook(wb);
   const buf = await wb.xlsx.writeBuffer();
-  const url = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `Panel_${model.getMeta().name.replace(/\s+/g, '_')}.xlsx`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  const blob = new Blob([buf], { type: FILE_TYPES.xlsx.mime });
+  await saveFileAs(blob, `Panel_${safeFileName(model.getMeta().name).replace(/\s+/g, '_')}.xlsx`, FILE_TYPES.xlsx);
 }

@@ -147,13 +147,7 @@ export function renderSymbolImpl(this: CadEngine, symbol: SymbolObject, isLocked
       if (e.evt && e.evt.button !== 0 && !e.evt.touches) return;
       if (this.toolMode !== 'select' || this.selectionSubMode === 'box') return;
       e.cancelBubble = true;
-      if (!this.selectedObjectIds.includes(symbol.id)) {
-        if (e.evt?.shiftKey || this.selectionSubMode === 'multi') {
-          this.toggleObjectSelection(symbol.id);
-        } else {
-          this.selectObject(symbol.id);
-        }
-      }
+      this.pickObjectDown(symbol.id, e.evt as MouseEvent);
     });
 
     group.on('click tap', (e) => {
@@ -163,11 +157,7 @@ export function renderSymbolImpl(this: CadEngine, symbol: SymbolObject, isLocked
       if (this.wasGroupDragged) {
         return;
       }
-      if (e.evt.shiftKey || this.selectionSubMode === 'multi') {
-        this.toggleObjectSelection(symbol.id);
-      } else {
-        this.selectObject(symbol.id);
-      }
+      this.pickObjectClick(symbol.id, e.evt as MouseEvent);
     });
 
     group.on('dragstart', () => {

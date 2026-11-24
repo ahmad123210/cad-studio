@@ -63,10 +63,14 @@ function getObjectTypeName(type: string): string {
   }
 }
 
-export const DEFAULT_LAYER_IDS = ['arch', 'elec', 'plumb', 'hvac', 'fire'];
+export const DEFAULT_LAYER_IDS = ['arch', 'furn', 'elec', 'plumb', 'hvac', 'fire'];
+
+/** طبقة الأثاث والعفش التلقائية (المرحلة 20): كل رموز «فرش وأجهزة» تُوضع عليها */
+export const FURNITURE_LAYER: Layer = { id: 'furn', name: 'الأثاث والعفش (Furniture)', visible: true, locked: false, color: '#c084fc', isDefault: true };
 
 export const DEFAULT_LAYERS: Layer[] = [
   { id: 'arch', name: 'المعماري (Architectural)', visible: true, locked: false, color: '#f3f4f6', isDefault: true },
+  { id: 'furn', name: 'الأثاث والعفش (Furniture)', visible: true, locked: false, color: '#c084fc', isDefault: true },
   { id: 'elec', name: 'الكهرباء (Electrical)', visible: true, locked: false, color: '#f59e0b', isDefault: true },
   { id: 'plumb', name: 'السباكة (Plumbing)', visible: true, locked: false, color: '#3b82f6', isDefault: true },
   { id: 'hvac', name: 'التكييف (HVAC)', visible: true, locked: false, color: '#10b981', isDefault: true },
@@ -257,6 +261,28 @@ export class ProjectModel {
       Object.assign(layer, updates);
       this.notify();
     }
+  }
+
+  /**
+   * طبقة مطلوبة للرسم (طبقة الأثاث التلقائية): تُنشأ إن حُذفت أو لم تكن في المشروع.
+   * يعيد معرّف الطبقة الصالح للاستخدام.
+   */
+  public ensureLayer(id: string): string {
+    if (this.layers.some((l) => l.id === id)) return id;
+    if (id === FURNITURE_LAYER.id) {
+      const at = this.layers.findIndex((l) => l.id === 'arch');
+      this.layers.splice(at === -1 ? this.layers.length : at + 1, 0, JSON.parse(JSON.stringify(FURNITURE_LAYER)));
+      this.notify();
+      return id;
+    }
+    return this.activeLayerId;
+  }
+
+  /** الطبقة المناسبة لرمز: الفرش والأجهزة ← طبقة الأثاث، وغيرها ← طبقة تخصصه إن وجدت (المرحلة 20) */
+  public layerForSymbol(symbolKind: string, defaultLayerId?: string, category?: string): string {
+    if (category === 'furniture' || symbolKind.startsWith('furn_') || defaultLayerId === 'furn') return this.ensureLayer('furn');
+    if (defaultLayerId && this.layers.some((l) => l.id === defaultLayerId)) return defaultLayerId;
+    return this.activeLayerId;
   }
 
   public addLayer(layerData: {
@@ -1112,7 +1138,7 @@ export class ProjectModel {
     void idbSaveProject(this.projectId, data).catch(() => undefined);
     try {
       localStorage.setItem(STORAGE_PREFIX + this.projectId, JSON.stringify(data));
-      localStorage.setItem(CURRENT_PROJECT_KEY, this.projectId);
+      if (this.rememberAsActive) localStorage.setItem(CURRENT_PROJECT_KEY, this.projectId);
       return true;
     } catch (err) {
       console.error('saveToLocalStorage failed (storage quota?):', err);
@@ -1125,7 +1151,7 @@ export class ProjectModel {
   private dropStaleLocalCopy(): void {
     try {
       localStorage.removeItem(STORAGE_PREFIX + this.projectId);
-      localStorage.setItem(CURRENT_PROJECT_KEY, this.projectId);
+      if (this.rememberAsActive) localStorage.setItem(CURRENT_PROJECT_KEY, this.projectId);
     } catch {
       // تجاهل
     }
@@ -1153,7 +1179,7 @@ export class ProjectModel {
     }
     try {
       localStorage.setItem(STORAGE_PREFIX + this.projectId, JSON.stringify(data));
-      localStorage.setItem(CURRENT_PROJECT_KEY, this.projectId);
+      if (this.rememberAsActive) localStorage.setItem(CURRENT_PROJECT_KEY, this.projectId);
       lsOk = true;
     } catch {
       if (idbOk) this.dropStaleLocalCopy();
@@ -1297,6 +1323,8 @@ export class ProjectModel {
 
   /** رقم إصدار يزداد مع كل تغيير (لإبطال الفهارس المؤقتة مثل الفهرس المكاني للالتقاط) */
   private version: number = 0;
+  /** النوافذ الإضافية (المرحلة 20) لا تغيّر «آخر مشروع» الذي تستعيده النافذة الرئيسية */
+  public rememberAsActive = true;
 
   public getVersion(): number {
     return this.version;

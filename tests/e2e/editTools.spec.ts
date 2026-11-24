@@ -53,9 +53,9 @@ test('chain dimensions for a wall with a door; join via context menu; copy/paste
 
   // دمج a و b (على استقامة واحدة ومتلامسان) — الباب يبقى في مكانه
   await page.mouse.click(...W(-100, 0));
-  await page.keyboard.down('Shift');
+  await page.keyboard.down('Control');
   await page.mouse.click(...W(150, 0));
-  await page.keyboard.up('Shift');
+  await page.keyboard.up('Control');
   await page.mouse.click(...W(150, 0), { button: 'right' });
   await page.getByTestId('ctx-more-edit').getByText('دمج المحدد').click();
   objs = await savedObjects(page);

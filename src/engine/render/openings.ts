@@ -223,13 +223,7 @@ export function renderDoorImpl(this: CadEngine, door: DoorObject, wall: WallObje
       if (e.evt && e.evt.button !== 0 && !e.evt.touches) return;
       if (this.toolMode !== 'select' || this.selectionSubMode === 'box') return;
       e.cancelBubble = true;
-      if (!this.selectedObjectIds.includes(door.id)) {
-        if (e.evt?.shiftKey || this.selectionSubMode === 'multi') {
-          this.toggleObjectSelection(door.id);
-        } else {
-          this.selectObject(door.id);
-        }
-      }
+      this.pickObjectDown(door.id, e.evt as MouseEvent);
     });
 
     group.on('click tap', (e) => {
@@ -239,11 +233,7 @@ export function renderDoorImpl(this: CadEngine, door: DoorObject, wall: WallObje
       if (this.wasGroupDragged) {
         return;
       }
-      if (e.evt.shiftKey || this.selectionSubMode === 'multi') {
-        this.toggleObjectSelection(door.id);
-      } else {
-        this.selectObject(door.id);
-      }
+      this.pickObjectClick(door.id, e.evt as MouseEvent);
     });
 
     group.on('dragmove', () => {
@@ -424,13 +414,7 @@ export function renderWindowImpl(this: CadEngine, win: WindowObject, wall: WallO
       if (e.evt && e.evt.button !== 0 && !e.evt.touches) return;
       if (this.toolMode !== 'select' || this.selectionSubMode === 'box') return;
       e.cancelBubble = true;
-      if (!this.selectedObjectIds.includes(win.id)) {
-        if (e.evt?.shiftKey || this.selectionSubMode === 'multi') {
-          this.toggleObjectSelection(win.id);
-        } else {
-          this.selectObject(win.id);
-        }
-      }
+      this.pickObjectDown(win.id, e.evt as MouseEvent);
     });
 
     group.on('click tap', (e) => {
@@ -440,11 +424,7 @@ export function renderWindowImpl(this: CadEngine, win: WindowObject, wall: WallO
       if (this.wasGroupDragged) {
         return;
       }
-      if (e.evt.shiftKey || this.selectionSubMode === 'multi') {
-        this.toggleObjectSelection(win.id);
-      } else {
-        this.selectObject(win.id);
-      }
+      this.pickObjectClick(win.id, e.evt as MouseEvent);
     });
 
     group.on('dragmove', () => {

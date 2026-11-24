@@ -10,6 +10,7 @@
  * 6. تصدير صور عالية الدقة (300 DPI PNG/JPEG).
  */
 
+import { saveFileAs, safeFileName, FILE_TYPES } from '../utils/saveFile.ts';
 import { localizeCsv } from '../i18n/workbook.ts';
 import { jsPDF } from 'jspdf';
 import { ProjectModel } from '../model/project.ts';
@@ -172,7 +173,8 @@ export class ExportEngine {
     const cleanProjectName = (options.titleBlock.projectName || 'Drawing').replace(/[/\\?%*:|"<>]/g, '_');
     const cleanSheetNo = (options.titleBlock.sheetNumber || '01').replace(/[/\\?%*:|"<>]/g, '_');
     const fileName = `${cleanProjectName}_${cleanSheetNo}.pdf`;
-    doc.save(fileName);
+    // نافذة الحفظ لاختيار المكان (ويندوز/المتصفح) — المرحلة 20
+    await saveFileAs(doc.output('blob'), fileName, FILE_TYPES.pdf);
   }
 
   /**
@@ -195,15 +197,10 @@ export class ExportEngine {
     const effDpi = Math.min(dpi, (maxSide / (Math.max(pdfW, pdfH) / 25.4)));
     const canvas = await this.renderSheetToCanvas(engine, model, options, pdfW, pdfH, effDpi / 96);
     const mime = format === 'jpeg' ? 'image/jpeg' : 'image/png';
-    const dataUrl = canvas.toDataURL(mime, 0.95);
+    const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('toBlob failed'))), mime, 0.95));
 
     const cleanProjectName = (options.titleBlock.projectName || 'Drawing').replace(/[/\\?%*:|"<>]/g, '_');
-    const link = document.createElement('a');
-    link.href = dataUrl;
-    link.download = `${cleanProjectName}_${options.titleBlock.sheetNumber || '01'}.${format}`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    await saveFileAs(blob, `${cleanProjectName}_${options.titleBlock.sheetNumber || '01'}.${format === 'jpeg' ? 'jpg' : 'png'}`, format === 'jpeg' ? FILE_TYPES.jpg : FILE_TYPES.png);
     return Math.round(effDpi);
   }
 
@@ -277,14 +274,20 @@ export class ExportEngine {
       }
     }
     const blob = new Blob([localizeCsv(csv)], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `BOQ_${meta.name.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    void saveFileAs(blob, `BOQ_${safeFileName(meta.name).replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.csv`, FILE_TYPES.csv);
+  }
+
+  /** جدول الكميات كملف Excel حقيقي (.xlsx) بمعادلات وتنسيق — المرحلة 20 */
+  public static async exportBOQExcel(model: ProjectModel): Promise<void> {
+    const meta = model.getMeta();
+    const report = computeQuantities(model.getObjects(), {
+      pixelsPerMeter: meta.scale || 50,
+      settings: model.getQuantitySettings(),
+      symbolName: (k) => getSymbolById(k)?.name || k,
+      routeMeta: (k) => ROUTE_KINDS_META[k],
+    });
+    const { downloadBoqExcel } = await import('./export/boqExcel.ts');
+    await downloadBoqExcel(report, model.getQuantitySettings().prices, meta.name);
   }
 
   /**

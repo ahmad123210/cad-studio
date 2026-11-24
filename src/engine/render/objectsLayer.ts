@@ -415,16 +415,7 @@ export function renderObjectsLayerImpl(this: CadEngine): void {
         if (e.evt && e.evt.button !== 0 && !e.evt.touches) return;
         if (this.toolMode !== 'select' || this.selectionSubMode === 'box') return;
         e.cancelBubble = true;
-        if (!this.selectedObjectIds.includes(wall.id)) {
-          if (e.evt?.shiftKey || this.selectionSubMode === 'multi') {
-            this.toggleObjectSelection(wall.id);
-          } else {
-            this.selectedObjectId = wall.id;
-            this.selectedObjectIds = [wall.id];
-            this.callbacks.onSelectObject(wall.id);
-            this.callbacks.onSelectObjects?.([wall.id]);
-          }
-        }
+        this.pickObjectDown(wall.id, e.evt as MouseEvent, true);
       });
 
       group.on('click tap', (e) => {
@@ -434,11 +425,7 @@ export function renderObjectsLayerImpl(this: CadEngine): void {
         if (this.wasGroupDragged) {
           return;
         }
-        if (e.evt?.shiftKey || this.selectionSubMode === 'multi') {
-          this.toggleObjectSelection(wall.id);
-        } else {
-          this.selectObject(wall.id);
-        }
+        this.pickObjectClick(wall.id, e.evt as MouseEvent);
       });
 
       group.on('dragstart', () => {

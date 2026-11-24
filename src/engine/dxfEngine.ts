@@ -9,6 +9,7 @@
  * كما يدعم استيراد وقراءة ملفات DXF الخارجية بمختلف أنواع الكيانات (LINES, POLYLINES, ARCS, CIRCLES, TEXT).
  */
 
+import { saveFileAs, FILE_TYPES } from '../utils/saveFile.ts';
 import { ProjectModel } from '../model/project.ts';
 import {
   ProjectObject,
@@ -56,6 +57,7 @@ export const STANDARD_CAD_LAYERS: Record<string, { code: string; defaultAci: num
   hvac: { code: 'M-HVAC', defaultAci: 3 }, // أخضر
   fire: { code: 'F-PROT', defaultAci: 1 }, // أحمر
   furniture: { code: 'A-FURN', defaultAci: 30 }, // برتقالي / بني للفرش والأجهزة
+  furn: { code: 'A-FURN', defaultAci: 30 }, // طبقة الأثاث والعفش التلقائية (المرحلة 20)
   custom: { code: 'A-GENR', defaultAci: 4 }, // سماوي
 };
 
@@ -1092,16 +1094,9 @@ export function exportProjectToDxf(
 export function downloadDxfFile(model: ProjectModel, options: DxfExportOptions = {}): void {
   const dxfContent = exportProjectToDxf(model, options);
   const blob = new Blob([dxfContent], { type: 'application/dxf;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
   const safeName = (model.getMeta().name || 'engineering_project')
     .replace(/\s+/g, '_')
     .replace(/[^\w\u0621-\u064A_-]/gi, '');
-  link.href = url;
-  link.download = `${safeName || 'project'}.dxf`;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  void saveFileAs(blob, `${safeName || 'project'}.dxf`, FILE_TYPES.dxf);
 }
 

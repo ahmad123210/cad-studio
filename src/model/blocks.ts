@@ -69,7 +69,7 @@ type Sym = [kind: string, x: number, y: number, rot?: number];
 const sym = (k: string, x: number, y: number, rot = 0, ppm = 50): SymbolObject => ({
   id: `b_${k}_${x}_${y}`,
   type: 'symbol',
-  layerId: k.startsWith('plumb') ? 'plumb' : 'arch',
+  layerId: k.startsWith('plumb') ? 'plumb' : k.startsWith('furn_') ? 'furn' : 'arch',
   symbolKind: k,
   x: x * ppm,
   y: y * ppm,

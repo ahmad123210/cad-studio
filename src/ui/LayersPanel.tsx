@@ -28,7 +28,7 @@ import {
   Edit2,
   Check,
 } from 'lucide-react';
-import { ProjectModel } from '../model/project.ts';
+import { ProjectModel, DEFAULT_LAYER_IDS } from '../model/project.ts';
 
 interface LayersPanelProps {
   model: ProjectModel;
@@ -62,7 +62,7 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({ model, isOpen, onClose
   const allObjects = model.getObjects();
 
   const handleStartRename = (id: string, currentName: string, isDef?: boolean) => {
-    if (isDef || ['arch', 'elec', 'plumb', 'hvac', 'fire'].includes(id)) {
+    if (isDef || DEFAULT_LAYER_IDS.includes(id)) {
       return;
     }
     setEditingLayerId(id);
@@ -300,7 +300,7 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({ model, isOpen, onClose
                             >
                               {layer.name}
                             </span>
-                            {!layer.isDefault && !['arch', 'elec', 'plumb', 'hvac', 'fire'].includes(layer.id) && (
+                            {!layer.isDefault && !DEFAULT_LAYER_IDS.includes(layer.id) && (
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -319,7 +319,7 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({ model, isOpen, onClose
                             نشطة
                           </span>
                         )}
-                        {(layer.isDefault || ['arch', 'elec', 'plumb', 'hvac', 'fire'].includes(layer.id)) && (
+                        {(layer.isDefault || DEFAULT_LAYER_IDS.includes(layer.id)) && (
                           <span className="text-[8.5px] bg-neutral-800 text-neutral-400 border border-neutral-700 px-1.5 py-0.2 rounded font-medium" title="طبقة أساسية لا يمكن حذفها أو إعادة تسميتها">
                             افتراضية
                           </span>
@@ -383,7 +383,7 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({ model, isOpen, onClose
                     </button>
 
                     {/* زر حذف الطبقة (متاح فقط للطبقات المخصصة غير الافتراضية) */}
-                    {layers.length > 1 && !layer.isDefault && !['arch', 'elec', 'plumb', 'hvac', 'fire'].includes(layer.id) && (
+                    {layers.length > 1 && !layer.isDefault && !DEFAULT_LAYER_IDS.includes(layer.id) && (
                       <button
                         onClick={() => handleDeleteLayer(layer.id)}
                         className="w-7 h-7 rounded-md flex items-center justify-center text-neutral-600 hover:text-rose-400 hover:bg-rose-950/30 transition-colors"

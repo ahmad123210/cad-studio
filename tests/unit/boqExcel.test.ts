@@ -47,3 +47,33 @@ describe('BOQ Excel export', () => {
     expect((op.getCell('H5').value as ExcelJS.CellFormulaValue).formula).toBe('G5*F5');
   });
 });
+
+describe('BOQ Excel links quantities to the detail sheets (phase 20)', () => {
+  it('floors, interior plaster, openings and fence quantities are formulas pointing at their sheets', async () => {
+    const { buildTemplateProject } = await import('../../src/model/templates.ts');
+    const data = buildTemplateProject('villa', [{ id: 'arch', name: 'a', visible: true, locked: false, color: '#fff' }], 50);
+    const report = computeQuantities(data.objects as ProjectObject[], { pixelsPerMeter: 50, settings: DEFAULT_QUANTITY_SETTINGS });
+    const wb = await buildBoqWorkbook(report, { 'floor:بورسلان': 120 }, 'فيلا');
+    const back = new ExcelJS.Workbook();
+    await back.xlsx.load((await wb.xlsx.writeBuffer()) as ArrayBuffer);
+    const boq = back.getWorksheet('جدول الكميات')!;
+    const rowOf = (name: string) => {
+      let r = 0;
+      boq.eachRow((row, i) => {
+        if (row.getCell(2).value === name) r = i;
+      });
+      return r;
+    };
+    const f = (addr: string) => boq.getCell(addr).value as ExcelJS.CellFormulaValue;
+    const porcelain = rowOf('أرضيات بورسلان');
+    expect(f(`D${porcelain}`).formula).toBe(`SUMIF('الغرف'!B5:B13,"بورسلان",'الغرف'!C5:C13)`);
+    expect(f(`D${porcelain}`).result).toBeCloseTo(69.72, 2);
+    expect(f(`D${rowOf('بناء السور')}`).formula).toBe(`'السور'!H9`);
+    expect(f(`D${rowOf('لياسة السور — وجهان')}`).formula).toBe(`'السور'!G9`);
+    expect(f(`D${rowOf('باب D1 (80×210 سم)')}`).formula).toBe(`'الأبواب والشبابيك'!F5`);
+    expect(f(`D${rowOf('لياسة داخلية — جدران')}`).formula).toBe(`'الغرف'!E14`);
+    // خلية السعر مدخل بتحقق رقمي
+    expect(boq.getCell(`E${porcelain}`).dataValidation?.type).toBe('decimal');
+    expect(boq.getCell(`E${porcelain}`).value).toBe(120);
+  });
+});
